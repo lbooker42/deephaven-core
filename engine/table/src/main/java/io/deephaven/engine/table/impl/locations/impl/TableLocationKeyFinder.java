@@ -11,7 +11,6 @@ import java.util.function.Consumer;
 /**
  * Interface for {@link TableLocationKey} discovery with delivery to a callback.
  */
-@FunctionalInterface
 public interface TableLocationKeyFinder<TLK extends TableLocationKey> {
 
     /**
@@ -20,4 +19,13 @@ public interface TableLocationKeyFinder<TLK extends TableLocationKey> {
      * @param locationKeyObserver Per-key callback
      */
     void findKeys(@NotNull Consumer<TLK> locationKeyObserver);
+
+    /**
+     * Find {@link TableLocationKey keys} that were removed {@code locationKeyObserver}.
+     *
+     * @param locationKeyObserver Per-key callback
+     */
+    default void findRemovedKeys(@NotNull Consumer<TLK> locationKeyObserver) {
+        // Default implementation does nothing
+    }
 }

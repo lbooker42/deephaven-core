@@ -164,6 +164,32 @@ public class IcebergCatalogAdapter {
         return readTableInternal(tableIdentifier, snapshotId, false);
     }
 
+
+    /**
+     * Read a refreshing table from the Iceberg catalog.
+     *
+     * @param tableIdentifier The table identifier to load
+     * @return The loaded table
+     */
+    @SuppressWarnings("unused")
+    public Table subscribeTable(@NotNull final TableIdentifier tableIdentifier) {
+        return readTableInternal(tableIdentifier, -1, true);
+    }
+
+    /**
+     * Read a refreshing table from the Iceberg catalog, selecting a specific snapshot.
+     *
+     * @param tableIdentifier The table identifier to load
+     * @param snapshotId The snapshot ID to load
+     * @return The loaded table
+     */
+    @SuppressWarnings("unused")
+    public Table subscribeTable(
+            @NotNull final TableIdentifier tableIdentifier,
+            final long snapshotId) {
+        return readTableInternal(tableIdentifier, snapshotId, true);
+    }
+
     private Table readTableInternal(
             @NotNull final TableIdentifier tableIdentifier,
             final long snapshotId,
@@ -184,7 +210,7 @@ public class IcebergCatalogAdapter {
         // Load the partitioning schema
         final org.apache.iceberg.PartitionSpec partitionSpec = table.spec();
 
-        // Use the user-supplied defininition or the Iceberg schema for the table definition.
+        // Use the user-supplied definition or the Iceberg schema for the table definition.
         final TableDefinition tableDef = instructions.tableDefinition().isPresent()
                 ? instructions.tableDefinition().get()
                 : fromSchema(schema, partitionSpec, instructions);

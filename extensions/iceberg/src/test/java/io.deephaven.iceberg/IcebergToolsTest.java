@@ -4,9 +4,11 @@
 package io.deephaven.iceberg;
 
 import io.deephaven.base.verify.Assert;
+import io.deephaven.engine.context.TestExecutionContext;
 import io.deephaven.engine.table.ColumnDefinition;
 import io.deephaven.engine.table.TableDefinition;
 import io.deephaven.engine.table.impl.locations.TableDataException;
+import io.deephaven.engine.testutil.junit4.EngineCleanup;
 import io.deephaven.engine.util.TableTools;
 import io.deephaven.extensions.s3.Credentials;
 import io.deephaven.extensions.s3.S3Instructions;
@@ -15,9 +17,11 @@ import io.deephaven.iceberg.util.IcebergInstructions;
 import io.deephaven.iceberg.util.IcebergTools;
 import io.deephaven.parquet.table.ParquetInstructions;
 import io.deephaven.time.DateTimeUtils;
+import io.deephaven.util.SafeCloseable;
 import junit.framework.TestCase;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.junit.Rule;
 import org.junit.Test;
 
 import java.time.LocalDateTime;
@@ -25,11 +29,19 @@ import java.util.Collection;
 import java.util.List;
 
 public class IcebergToolsTest extends TestCase {
+    @Rule
+    public final EngineCleanup base = new EngineCleanup();
+
+    private SafeCloseable executionContext;
+
     IcebergInstructions instructions;
     IcebergInstructions instructionsS3Only;
 
     @Override
     public void setUp() {
+        // initialize the unit test's execution context
+        executionContext = TestExecutionContext.createForUnitTests().open();
+
         final S3Instructions s3Instructions = S3Instructions.builder()
                 .credentials(Credentials.basic("admin", "password"))
                 .endpointOverride("http://minio:9000")
@@ -70,7 +82,6 @@ public class IcebergToolsTest extends TestCase {
         final Collection<TableIdentifier> tables = adapter.listTables(ns);
     }
 
-
     @Test
     public void testListTableSnapshots() {
         final IcebergCatalogAdapter adapter = IcebergTools.createS3Rest(
@@ -100,6 +111,26 @@ public class IcebergToolsTest extends TestCase {
         final Namespace ns = Namespace.of("nyc");
         final TableIdentifier tableId = TableIdentifier.of(ns, "taxis_partitioned");
         final io.deephaven.engine.table.Table table = adapter.snapshotTable(tableId);
+
+        TableTools.showWithRowSet(table, 100, DateTimeUtils.timeZone(), System.out);
+    }
+
+    @Test
+    public void testSubscribeTable() {
+        final IcebergCatalogAdapter adapter = IcebergTools.createS3Rest(
+                "minio-iceberg",
+                "http://rest:8181",
+                "s3a://warehouse/wh",
+                "us-east-1",
+                "admin",
+                "password",
+                "http://minio:9000",
+                instructions);
+
+        final Namespace ns = Namespace.of("nyc");
+        final TableIdentifier tableId = TableIdentifier.of(ns, "taxis_partitioned");
+        final io.deephaven.engine.table.Table table = adapter.subscribeTable(tableId);
+
 
         TableTools.showWithRowSet(table, 100, DateTimeUtils.timeZone(), System.out);
     }

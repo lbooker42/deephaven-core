@@ -118,6 +118,36 @@ public abstract class AbstractTableLocationProvider
     }
 
     /**
+     * Identify a removed key.
+     *
+     * @param locationKey The new key
+     * @apiNote This method is intended to be used by subclasses or by tightly-coupled discovery tools.
+     */
+    protected final void handleRemovedTableLocationKey(@NotNull final TableLocationKey locationKey) {
+        if (!supportsSubscriptions()) {
+            tableLocations.putIfAbsent(locationKey, TableLocationKey::makeImmutable);
+            visitLocationKey(toKeyImmutable(locationKey));
+            return;
+        }
+
+        synchronized (subscriptions) {
+            // Since we're holding the lock on subscriptions, the following code is overly complicated - we could
+            // certainly just deliver the notification in observeInsert. That said, I'm happier with this approach,
+            // as it minimizes lock duration for tableLocations, exemplifies correct use of putIfAbsent, and keeps
+            // observeInsert out of the business of subscription processing.
+            locationCreatedRecorder = false;
+            final Object result = tableLocations.putIfAbsent(locationKey, this::observeInsert);
+            visitLocationKey(locationKey);
+            if (locationCreatedRecorder) {
+                verifyPartitionKeys(locationKey);
+                if (subscriptions.deliverNotification(Listener::handleTableLocationKey, toKeyImmutable(result), true)) {
+                    onEmpty();
+                }
+            }
+        }
+    }
+
+    /**
      * Called <i>after</i> a table location has been visited by {@link #handleTableLocationKey(TableLocationKey)}, but
      * before notifications have been delivered to any subscriptions, if applicable. The default implementation does
      * nothing, and may be overridden to implement additional features.

@@ -129,4 +129,31 @@ public final class IcebergFlatLayout implements TableLocationKeyFinder<IcebergTa
             throw new TableDataException("Error finding Iceberg locations under " + currentSnapshot, e);
         }
     }
+
+    @Override
+    public synchronized void findRemovedKeys(@NotNull final Consumer<IcebergTableLocationKey> locationKeyObserver) {
+        try {
+            // Retrieve the manifest files from the snapshot
+            final List<ManifestFile> manifestFiles = currentSnapshot.allManifests(fileIO);
+            for (final ManifestFile manifestFile : manifestFiles) {
+                // Currently only can process manifest files with DATA content type.
+                Assert.eq(manifestFile.content(), "manifestFile.content()",
+                        ManifestContent.DATA, "ManifestContent.DATA");
+                final ManifestReader<DataFile> reader = ManifestFiles.read(manifestFile, fileIO);
+                for (DataFile df : reader) {
+                    final URI fileUri = FileUtils.convertToURI(df.path().toString(), false);
+                    final IcebergTableLocationKey locationKey = cache.computeIfAbsent(fileUri, uri -> {
+                        final IcebergTableLocationKey key = locationKey(df.format(), fileUri);
+                        // Verify before caching.
+                        return key.verifyFileReader() ? key : null;
+                    });
+                    if (locationKey != null) {
+                        locationKeyObserver.accept(locationKey);
+                    }
+                }
+            }
+        } catch (final Exception e) {
+            throw new TableDataException("Error finding Iceberg locations under " + currentSnapshot, e);
+        }
+    }
 }

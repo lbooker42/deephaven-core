@@ -7,7 +7,8 @@
 // @formatter:off
 package io.deephaven.engine.table.impl.updateby.rollingcount;
 
-import io.deephaven.base.ringbuffer.ByteRingBuffer;
+import io.deephaven.api.agg.util.AggCountType;
+import io.deephaven.base.ringbuffer.IntRingBuffer;
 import io.deephaven.base.verify.Assert;
 import io.deephaven.chunk.IntChunk;
 import io.deephaven.chunk.Chunk;
@@ -18,21 +19,23 @@ import io.deephaven.engine.table.impl.updateby.internal.BaseLongUpdateByOperator
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import static io.deephaven.util.QueryConstants.NULL_INT;
-
 public class IntRollingCountOperator extends BaseLongUpdateByOperator {
     private static final int BUFFER_INITIAL_CAPACITY = 128;
-    // region extra-fields
-    // endregion extra-fields
+
+    private final AggCountType countType;
+    private final AggCountType.IntCountFunction countFunction;
 
     protected class Context extends BaseLongUpdateByOperator.Context {
         protected IntChunk<? extends Values> influencerValuesChunk;
-        protected ByteRingBuffer buffer;
+        protected IntRingBuffer buffer;
 
         @SuppressWarnings("unused")
         protected Context(final int affectedChunkSize, final int influencerChunkSize) {
             super(affectedChunkSize);
-            buffer = new ByteRingBuffer(BUFFER_INITIAL_CAPACITY, true);
+            buffer = new IntRingBuffer(BUFFER_INITIAL_CAPACITY, true);
+
+            // curVal assigned to 0 (vs. default of NULL_LONG)
+            curVal = 0;
         }
 
         @Override
@@ -52,12 +55,11 @@ public class IntRollingCountOperator extends BaseLongUpdateByOperator {
 
             for (int ii = 0; ii < count; ii++) {
                 final int val = influencerValuesChunk.get(pos + ii);
+                buffer.addUnsafe(val);
 
-                if (val == NULL_INT) {
-                    buffer.addUnsafe((byte) 0); // 0 signifies null
-                    nullCount++;
-                } else {
-                    buffer.addUnsafe((byte) 1); // 1 signifies non-null
+                // Run the count function on the value and increment the count when appropriate
+                if (countFunction.count(val)) {
+                    curVal++;
                 }
             }
         }
@@ -67,24 +69,20 @@ public class IntRollingCountOperator extends BaseLongUpdateByOperator {
             Assert.geq(buffer.size(), "intWindowValues.size()", count);
 
             for (int ii = 0; ii < count; ii++) {
-                final byte val = buffer.removeUnsafe();
+                final int val = buffer.removeUnsafe();
 
-                if (val == 0) {
-                    nullCount--;
+                // Run the count function on the value and increment the count when appropriate
+                if (countFunction.count(val)) {
+                    curVal--;
                 }
             }
-        }
-
-        @Override
-        public void writeToOutputChunk(int outIdx) {
-            curVal = buffer.size() - nullCount;
-            outputValues.set(outIdx, curVal);
         }
 
         @Override
         public void reset() {
             super.reset();
             buffer.clear();
+            curVal = 0;
         }
     }
 
@@ -99,13 +97,11 @@ public class IntRollingCountOperator extends BaseLongUpdateByOperator {
             @NotNull final String[] affectingColumns,
             @Nullable final String timestampColumnName,
             final long reverseWindowScaleUnits,
-            final long forwardWindowScaleUnits
-    // region extra-constructor-args
-    // endregion extra-constructor-args
-    ) {
+            final long forwardWindowScaleUnits,
+            AggCountType countType) {
         super(pair, affectingColumns, timestampColumnName, reverseWindowScaleUnits, forwardWindowScaleUnits, true);
-        // region constructor
-        // endregion constructor
+        this.countType = countType;
+        countFunction = AggCountType.getIntCountFunction(countType);
     }
 
     @Override
@@ -114,9 +110,7 @@ public class IntRollingCountOperator extends BaseLongUpdateByOperator {
                 affectingColumns,
                 timestampColumnName,
                 reverseWindowScaleUnits,
-                forwardWindowScaleUnits
-        // region extra-copy-args
-        // endregion extra-copy-args
-        );
+                forwardWindowScaleUnits,
+                countType);
     }
 }

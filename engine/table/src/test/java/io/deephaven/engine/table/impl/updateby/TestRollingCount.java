@@ -6,11 +6,10 @@ package io.deephaven.engine.table.impl.updateby;
 import io.deephaven.api.ColumnName;
 import io.deephaven.api.updateby.UpdateByControl;
 import io.deephaven.api.updateby.UpdateByOperation;
-import io.deephaven.base.verify.Assert;
 import io.deephaven.engine.context.ExecutionContext;
+import io.deephaven.engine.primitive.iterator.CloseableIterator;
 import io.deephaven.engine.table.Table;
 import io.deephaven.engine.table.impl.QueryTable;
-import io.deephaven.engine.table.vectors.ColumnVectors;
 import io.deephaven.engine.testutil.ControlledUpdateGraph;
 import io.deephaven.engine.testutil.EvalNugget;
 import io.deephaven.engine.testutil.GenerateTableUpdates;
@@ -27,10 +26,10 @@ import io.deephaven.vector.ObjectVector;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 import java.util.function.Function;
 
 import static io.deephaven.engine.testutil.GenerateTableUpdates.generateAppends;
@@ -72,15 +71,15 @@ public class TestRollingCount extends BaseUpdateByTest {
     final int DYNAMIC_UPDATE_SIZE = 100;
     final int DYNAMIC_UPDATE_STEPS = 20;
 
-    private String[] getFormulas(String[] columns) {
+    private String[] getFormulas(String[] columns, String function) {
         return Arrays.stream(columns)
-                .map(c -> String.format("%s=count(%s)", c, c))
+                .map(c -> String.format("%s=%s(%s)", c, function, c))
                 .toArray(String[]::new);
     }
 
     private String[] getCastingFormulas(String[] columns) {
         return Arrays.stream(columns)
-                .map(c -> String.format("%s=(double)%s", c, c))
+                .map(c -> c.equals("charCol") ? String.format("%s=(double)%s", c, c) : c)
                 .toArray(String[]::new);
     }
 
@@ -90,146 +89,323 @@ public class TestRollingCount extends BaseUpdateByTest {
     @VisibleForTesting
     @TestUseOnly
     public static class Helpers {
-
-        public static long countObject(ObjectVector<?> objectVector) {
-
+        private static long countObject(ObjectVector<?> objectVector, Function<Object, Boolean> countFunction) {
             if (objectVector == null || objectVector.isEmpty()) {
                 return 0L;
             }
-
-            final long n = objectVector.size();
-            long nullCount = 0;
-
-            for (long i = 0; i < n; i++) {
-                if (objectVector.get(i) == null) {
-                    nullCount++;
+            long count = 0;
+            try (final CloseableIterator<?> each = objectVector.iterator()) {
+                while (each.hasNext()) {
+                    if (countFunction.apply(each.next())) {
+                        count++;
+                    }
                 }
             }
-            return n - nullCount;
+            return count;
+        }
+
+        public static long countObjectAll(ObjectVector<?> objectVector) {
+            return countObject(objectVector, (ignored) -> true);
+        }
+
+        public static long countObjectNonNull(ObjectVector<?> objectVector) {
+            return countObject(objectVector, Objects::nonNull);
+        }
+
+        public static long countObjectNull(ObjectVector<?> objectVector) {
+            return countObject(objectVector, Objects::isNull);
+        }
+
+        private static long countBigInteger(ObjectVector<BigInteger> objectVector,
+                Function<BigInteger, Boolean> countFunction) {
+            if (objectVector == null || objectVector.isEmpty()) {
+                return 0L;
+            }
+            long count = 0;
+            try (final CloseableIterator<BigInteger> each = objectVector.iterator()) {
+                while (each.hasNext()) {
+                    if (countFunction.apply(each.next())) {
+                        count++;
+                    }
+                }
+            }
+            return count;
+        }
+
+        public static long countBigIntegerAll(ObjectVector<BigInteger> objectVector) {
+            return countBigInteger(objectVector, (ignored) -> true);
+        }
+
+        public static long countBigIntegerNonNull(ObjectVector<BigInteger> objectVector) {
+            return countBigInteger(objectVector, Objects::nonNull);
+        }
+
+        public static long countBigIntegerNull(ObjectVector<BigInteger> objectVector) {
+            return countBigInteger(objectVector, Objects::isNull);
+        }
+
+        public static long countBigIntegerNeg(ObjectVector<BigInteger> objectVector) {
+            return countBigInteger(objectVector, val -> val != null && val.signum() < 0);
+        }
+
+        public static long countBigIntegerPos(ObjectVector<BigInteger> objectVector) {
+            return countBigInteger(objectVector, val -> val != null && val.signum() > 0);
+        }
+
+        public static long countBigIntegerZero(ObjectVector<BigInteger> objectVector) {
+            return countBigInteger(objectVector, val -> val != null && val.signum() == 0);
+        }
+
+        public static long countBigIntegerNone(ObjectVector<BigInteger> objectVector) {
+            return 0;
+        }
+
+        private static long countBigDecimal(ObjectVector<BigDecimal> objectVector,
+                Function<BigDecimal, Boolean> countFunction) {
+            if (objectVector == null || objectVector.isEmpty()) {
+                return 0L;
+            }
+            long count = 0;
+            try (final CloseableIterator<BigDecimal> each = objectVector.iterator()) {
+                while (each.hasNext()) {
+                    if (countFunction.apply(each.next())) {
+                        count++;
+                    }
+                }
+            }
+            return count;
+        }
+
+        public static long countBigDecimalAll(ObjectVector<BigDecimal> objectVector) {
+            return countBigDecimal(objectVector, (ignored) -> true);
+        }
+
+        public static long countBigDecimalNonNull(ObjectVector<BigDecimal> objectVector) {
+            return countBigDecimal(objectVector, Objects::nonNull);
+        }
+
+        public static long countBigDecimalNull(ObjectVector<BigDecimal> objectVector) {
+            return countBigDecimal(objectVector, Objects::isNull);
+        }
+
+        public static long countBigDecimalNeg(ObjectVector<BigDecimal> objectVector) {
+            return countBigDecimal(objectVector, val -> val != null && val.signum() < 0);
+        }
+
+        public static long countBigDecimalPos(ObjectVector<BigDecimal> objectVector) {
+            return countBigDecimal(objectVector, val -> val != null && val.signum() > 0);
+        }
+
+        public static long countBigDecimalZero(ObjectVector<BigDecimal> objectVector) {
+            return countBigDecimal(objectVector, val -> val != null && val.signum() == 0);
+        }
+
+        public static long countBigDecimalNone(ObjectVector<BigDecimal> objectVector) {
+            return 0;
         }
     }
 
     private void doTestStaticZeroKeyBigNumbers(final QueryTable t, final int prevTicks, final int postTicks) {
         ExecutionContext.getContext().getQueryLibrary().importStatic(Helpers.class);
 
-        Table actual = t.updateBy(UpdateByOperation.RollingCount(prevTicks, postTicks, "bigIntCol", "bigDecimalCol"));
+        final List<UpdateByOperation> operations = List.of(
+                UpdateByOperation.RollingCount(prevTicks, postTicks, "countBI=bigIntCol", "countBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountNonNull(prevTicks, postTicks, "countNonNullBI=bigIntCol",
+                        "countNonNullBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountNull(prevTicks, postTicks, "countNullBI=bigIntCol",
+                        "countNullBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountNeg(prevTicks, postTicks, "countNegBI=bigIntCol",
+                        "countNegBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountPos(prevTicks, postTicks, "countPosBI=bigIntCol",
+                        "countPosBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountZero(prevTicks, postTicks, "countZeroBI=bigIntCol",
+                        "countZeroBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountNaN(prevTicks, postTicks, "countNaNBI=bigIntCol",
+                        "countNaNBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountInf(prevTicks, postTicks, "countInfBI=bigIntCol",
+                        "countInfBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountFinite(prevTicks, postTicks, "countFiniteBI=bigIntCol",
+                        "countFiniteBD=bigDecimalCol"));
+        Table actual = t.updateBy(operations).dropColumns("bigIntCol", "bigDecimalCol");
         Table expected = t.updateBy(UpdateByOperation.RollingGroup(prevTicks, postTicks, "bigIntCol", "bigDecimalCol"))
-                .update("bigIntCol=countObject(bigIntCol)", "bigDecimalCol=countObject(bigDecimalCol)");
+                .update(
+                        "countBI=countBigIntegerNonNull(bigIntCol)",
+                        "countBD=countBigDecimalNonNull(bigDecimalCol)",
+                        "countNonNullBI=countBigIntegerNonNull(bigIntCol)",
+                        "countNonNullBD=countBigDecimalNonNull(bigDecimalCol)",
+                        "countNullBI=countBigIntegerNull(bigIntCol)",
+                        "countNullBD=countBigDecimalNull(bigDecimalCol)",
+                        "countNegBI=countBigIntegerNeg(bigIntCol)",
+                        "countNegBD=countBigDecimalNeg(bigDecimalCol)",
+                        "countPosBI=countBigIntegerPos(bigIntCol)",
+                        "countPosBD=countBigDecimalPos(bigDecimalCol)",
+                        "countZeroBI=countBigIntegerZero(bigIntCol)",
+                        "countZeroBD=countBigDecimalZero(bigDecimalCol)",
+                        "countNaNBI=countBigIntegerNone(bigIntCol)",
+                        "countNaNBD=countBigDecimalNone(bigDecimalCol)",
+                        "countInfBI=countBigIntegerNone(bigIntCol)",
+                        "countInfBD=countBigDecimalNone(bigDecimalCol)",
+                        "countFiniteBI=countBigIntegerNonNull(bigIntCol)",
+                        "countFiniteBD=countBigDecimalNonNull(bigDecimalCol)")
+                .dropColumns("bigIntCol", "bigDecimalCol");
 
-        long[] biActual = ColumnVectors.ofLong(actual, "bigIntCol").toArray();
-        long[] biExpected = ColumnVectors.ofLong(expected, "bigIntCol").toArray();
-
-        Assert.eq(biActual.length, "array length", biExpected.length);
-        for (int ii = 0; ii < biActual.length; ii++) {
-            final long actualVal = biActual[ii];
-            final long expectedVal = biExpected[ii];
-            Assert.eq(actualVal, "values match", expectedVal);
-        }
-
-        long[] bdActual = ColumnVectors.ofLong(actual, "bigDecimalCol").toArray();
-        long[] bdExpected = ColumnVectors.ofLong(expected, "bigDecimalCol").toArray();
-
-        Assert.eq(bdActual.length, "array length", bdExpected.length);
-        for (int ii = 0; ii < bdActual.length; ii++) {
-            final long actualVal = biActual[ii];
-            final long expectedVal = biExpected[ii];
-            Assert.eq(actualVal, "values match", expectedVal);
-        }
+        TstUtils.assertTableEquals(expected, actual, TableDiff.DiffItems.DoublesExact,
+                TableDiff.DiffItems.DoubleFraction);
     }
 
     private void doTestStaticZeroKeyTimedBigNumbers(final QueryTable t, final Duration prevTime,
             final Duration postTime) {
         ExecutionContext.getContext().getQueryLibrary().importStatic(Helpers.class);
 
-        Table actual =
-                t.updateBy(UpdateByOperation.RollingCount("ts", prevTime, postTime, "bigIntCol", "bigDecimalCol"));
+        final List<UpdateByOperation> operations = List.of(
+                UpdateByOperation.RollingCount("ts", prevTime, postTime, "countBI=bigIntCol", "countBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountNonNull("ts", prevTime, postTime, "countNonNullBI=bigIntCol",
+                        "countNonNullBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountNull("ts", prevTime, postTime, "countNullBI=bigIntCol",
+                        "countNullBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountNeg("ts", prevTime, postTime, "countNegBI=bigIntCol",
+                        "countNegBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountPos("ts", prevTime, postTime, "countPosBI=bigIntCol",
+                        "countPosBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountZero("ts", prevTime, postTime, "countZeroBI=bigIntCol",
+                        "countZeroBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountNaN("ts", prevTime, postTime, "countNaNBI=bigIntCol",
+                        "countNaNBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountInf("ts", prevTime, postTime, "countInfBI=bigIntCol",
+                        "countInfBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountFinite("ts", prevTime, postTime, "countFiniteBI=bigIntCol",
+                        "countFiniteBD=bigDecimalCol"));
+        Table actual = t.updateBy(operations).dropColumns("bigIntCol", "bigDecimalCol");
         Table expected =
                 t.updateBy(UpdateByOperation.RollingGroup("ts", prevTime, postTime, "bigIntCol", "bigDecimalCol"))
-                        .update("bigIntCol=countObject(bigIntCol)",
-                                "bigDecimalCol=countObject(bigDecimalCol)");
+                        .update(
+                                "countBI=countBigIntegerNonNull(bigIntCol)",
+                                "countBD=countBigDecimalNonNull(bigDecimalCol)",
+                                "countNonNullBI=countBigIntegerNonNull(bigIntCol)",
+                                "countNonNullBD=countBigDecimalNonNull(bigDecimalCol)",
+                                "countNullBI=countBigIntegerNull(bigIntCol)",
+                                "countNullBD=countBigDecimalNull(bigDecimalCol)",
+                                "countNegBI=countBigIntegerNeg(bigIntCol)",
+                                "countNegBD=countBigDecimalNeg(bigDecimalCol)",
+                                "countPosBI=countBigIntegerPos(bigIntCol)",
+                                "countPosBD=countBigDecimalPos(bigDecimalCol)",
+                                "countZeroBI=countBigIntegerZero(bigIntCol)",
+                                "countZeroBD=countBigDecimalZero(bigDecimalCol)",
+                                "countZeroBI=countBigIntegerZero(bigIntCol)",
+                                "countZeroBD=countBigDecimalZero(bigDecimalCol)",
+                                "countNaNBI=countBigIntegerNone(bigIntCol)",
+                                "countNaNBD=countBigDecimalNone(bigDecimalCol)",
+                                "countInfBI=countBigIntegerNone(bigIntCol)",
+                                "countInfBD=countBigDecimalNone(bigDecimalCol)",
+                                "countFiniteBI=countBigIntegerNonNull(bigIntCol)",
+                                "countFiniteBD=countBigDecimalNonNull(bigDecimalCol)")
+                        .dropColumns("bigIntCol", "bigDecimalCol");
 
-        long[] biActual = ColumnVectors.ofLong(actual, "bigIntCol").toArray();
-        long[] biExpected = ColumnVectors.ofLong(expected, "bigIntCol").toArray();
-
-        Assert.eq(biActual.length, "array length", biExpected.length);
-        for (int ii = 0; ii < biActual.length; ii++) {
-            final long actualVal = biActual[ii];
-            final long expectedVal = biExpected[ii];
-            Assert.eq(actualVal, "values match", expectedVal);
-        }
-
-        long[] bdActual = ColumnVectors.ofLong(actual, "bigDecimalCol").toArray();
-        long[] bdExpected = ColumnVectors.ofLong(expected, "bigDecimalCol").toArray();
-
-        Assert.eq(bdActual.length, "array length", bdExpected.length);
-        for (int ii = 0; ii < bdActual.length; ii++) {
-            final long actualVal = biActual[ii];
-            final long expectedVal = biExpected[ii];
-            Assert.eq(actualVal, "values match", expectedVal);
-        }
+        TstUtils.assertTableEquals(expected, actual, TableDiff.DiffItems.DoublesExact,
+                TableDiff.DiffItems.DoubleFraction);
     }
 
     private void doTestStaticBucketedBigNumbers(final QueryTable t, final int prevTicks, final int postTicks) {
         ExecutionContext.getContext().getQueryLibrary().importStatic(Helpers.class);
 
-        Table actual =
-                t.updateBy(UpdateByOperation.RollingCount(prevTicks, postTicks, "bigIntCol", "bigDecimalCol"), "Sym");
+        final List<UpdateByOperation> operations = List.of(
+                UpdateByOperation.RollingCount(prevTicks, postTicks, "countBI=bigIntCol", "countBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountNonNull(prevTicks, postTicks, "countNonNullBI=bigIntCol",
+                        "countNonNullBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountNull(prevTicks, postTicks, "countNullBI=bigIntCol",
+                        "countNullBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountNeg(prevTicks, postTicks, "countNegBI=bigIntCol",
+                        "countNegBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountPos(prevTicks, postTicks, "countPosBI=bigIntCol",
+                        "countPosBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountZero(prevTicks, postTicks, "countZeroBI=bigIntCol",
+                        "countZeroBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountNaN(prevTicks, postTicks, "countNaNBI=bigIntCol",
+                        "countNaNBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountInf(prevTicks, postTicks, "countInfBI=bigIntCol",
+                        "countInfBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountFinite(prevTicks, postTicks, "countFiniteBI=bigIntCol",
+                        "countFiniteBD=bigDecimalCol"));
+        Table actual = t.updateBy(operations, "Sym").dropColumns("bigIntCol", "bigDecimalCol");
         Table expected =
                 t.updateBy(UpdateByOperation.RollingGroup(prevTicks, postTicks, "bigIntCol", "bigDecimalCol"), "Sym")
-                        .update("bigIntCol=countObject(bigIntCol)",
-                                "bigDecimalCol=countObject(bigDecimalCol)");
+                        .update(
+                                "countBI=countBigIntegerNonNull(bigIntCol)",
+                                "countBD=countBigDecimalNonNull(bigDecimalCol)",
+                                "countNonNullBI=countBigIntegerNonNull(bigIntCol)",
+                                "countNonNullBD=countBigDecimalNonNull(bigDecimalCol)",
+                                "countNullBI=countBigIntegerNull(bigIntCol)",
+                                "countNullBD=countBigDecimalNull(bigDecimalCol)",
+                                "countNegBI=countBigIntegerNeg(bigIntCol)",
+                                "countNegBD=countBigDecimalNeg(bigDecimalCol)",
+                                "countPosBI=countBigIntegerPos(bigIntCol)",
+                                "countPosBD=countBigDecimalPos(bigDecimalCol)",
+                                "countZeroBI=countBigIntegerZero(bigIntCol)",
+                                "countZeroBD=countBigDecimalZero(bigDecimalCol)",
+                                "countZeroBI=countBigIntegerZero(bigIntCol)",
+                                "countZeroBD=countBigDecimalZero(bigDecimalCol)",
+                                "countNaNBI=countBigIntegerNone(bigIntCol)",
+                                "countNaNBD=countBigDecimalNone(bigDecimalCol)",
+                                "countInfBI=countBigIntegerNone(bigIntCol)",
+                                "countInfBD=countBigDecimalNone(bigDecimalCol)",
+                                "countFiniteBI=countBigIntegerNonNull(bigIntCol)",
+                                "countFiniteBD=countBigDecimalNonNull(bigDecimalCol)")
+                        .dropColumns("bigIntCol", "bigDecimalCol");
 
-        long[] biActual = ColumnVectors.ofLong(actual, "bigIntCol").toArray();
-        long[] biExpected = ColumnVectors.ofLong(expected, "bigIntCol").toArray();
-
-        Assert.eq(biActual.length, "array length", biExpected.length);
-        for (int ii = 0; ii < biActual.length; ii++) {
-            final long actualVal = biActual[ii];
-            final long expectedVal = biExpected[ii];
-            Assert.eq(actualVal, "values match", expectedVal);
-        }
-
-        long[] bdActual = ColumnVectors.ofLong(actual, "bigDecimalCol").toArray();
-        long[] bdExpected = ColumnVectors.ofLong(expected, "bigDecimalCol").toArray();
-
-        Assert.eq(bdActual.length, "array length", bdExpected.length);
-        for (int ii = 0; ii < bdActual.length; ii++) {
-            final long actualVal = biActual[ii];
-            final long expectedVal = biExpected[ii];
-            Assert.eq(actualVal, "values match", expectedVal);
-        }
+        TstUtils.assertTableEquals(expected, actual, TableDiff.DiffItems.DoublesExact,
+                TableDiff.DiffItems.DoubleFraction);
     }
 
     private void doTestStaticBucketedTimedBigNumbers(final QueryTable t, final Duration prevTime,
             final Duration postTime) {
         ExecutionContext.getContext().getQueryLibrary().importStatic(Helpers.class);
 
-        Table actual =
-                t.updateBy(UpdateByOperation.RollingCount("ts", prevTime, postTime, "bigIntCol", "bigDecimalCol"),
-                        "Sym");
+        final List<UpdateByOperation> operations = List.of(
+                UpdateByOperation.RollingCount("ts", prevTime, postTime, "countBI=bigIntCol", "countBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountNonNull("ts", prevTime, postTime, "countNonNullBI=bigIntCol",
+                        "countNonNullBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountNull("ts", prevTime, postTime, "countNullBI=bigIntCol",
+                        "countNullBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountNeg("ts", prevTime, postTime, "countNegBI=bigIntCol",
+                        "countNegBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountPos("ts", prevTime, postTime, "countPosBI=bigIntCol",
+                        "countPosBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountZero("ts", prevTime, postTime, "countZeroBI=bigIntCol",
+                        "countZeroBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountNaN("ts", prevTime, postTime, "countNaNBI=bigIntCol",
+                        "countNaNBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountInf("ts", prevTime, postTime, "countInfBI=bigIntCol",
+                        "countInfBD=bigDecimalCol"),
+                UpdateByOperation.RollingCountFinite("ts", prevTime, postTime, "countFiniteBI=bigIntCol",
+                        "countFiniteBD=bigDecimalCol"));
+        Table actual = t.updateBy(operations, "Sym").dropColumns("bigIntCol", "bigDecimalCol");
         Table expected = t
                 .updateBy(UpdateByOperation.RollingGroup("ts", prevTime, postTime, "bigIntCol", "bigDecimalCol"), "Sym")
-                .update("bigIntCol=countObject(bigIntCol)", "bigDecimalCol=countObject(bigDecimalCol)");
+                .update(
+                        "countBI=countBigIntegerNonNull(bigIntCol)",
+                        "countBD=countBigDecimalNonNull(bigDecimalCol)",
+                        "countNonNullBI=countBigIntegerNonNull(bigIntCol)",
+                        "countNonNullBD=countBigDecimalNonNull(bigDecimalCol)",
+                        "countNullBI=countBigIntegerNull(bigIntCol)",
+                        "countNullBD=countBigDecimalNull(bigDecimalCol)",
+                        "countNegBI=countBigIntegerNeg(bigIntCol)",
+                        "countNegBD=countBigDecimalNeg(bigDecimalCol)",
+                        "countPosBI=countBigIntegerPos(bigIntCol)",
+                        "countPosBD=countBigDecimalPos(bigDecimalCol)",
+                        "countZeroBI=countBigIntegerZero(bigIntCol)",
+                        "countZeroBD=countBigDecimalZero(bigDecimalCol)",
+                        "countZeroBI=countBigIntegerZero(bigIntCol)",
+                        "countZeroBD=countBigDecimalZero(bigDecimalCol)",
+                        "countNaNBI=countBigIntegerNone(bigIntCol)",
+                        "countNaNBD=countBigDecimalNone(bigDecimalCol)",
+                        "countInfBI=countBigIntegerNone(bigIntCol)",
+                        "countInfBD=countBigDecimalNone(bigDecimalCol)",
+                        "countFiniteBI=countBigIntegerNonNull(bigIntCol)",
+                        "countFiniteBD=countBigDecimalNonNull(bigDecimalCol)")
+                .dropColumns("bigIntCol", "bigDecimalCol");
 
-        long[] biActual = ColumnVectors.ofLong(actual, "bigIntCol").toArray();
-        long[] biExpected = ColumnVectors.ofLong(expected, "bigIntCol").toArray();
-
-        Assert.eq(biActual.length, "array length", biExpected.length);
-        for (int ii = 0; ii < biActual.length; ii++) {
-            final long actualVal = biActual[ii];
-            final long expectedVal = biExpected[ii];
-            Assert.eq(actualVal, "values match", expectedVal);
-        }
-
-        long[] bdActual = ColumnVectors.ofLong(actual, "bigDecimalCol").toArray();
-        long[] bdExpected = ColumnVectors.ofLong(expected, "bigDecimalCol").toArray();
-
-        Assert.eq(bdActual.length, "array length", bdExpected.length);
-        for (int ii = 0; ii < bdActual.length; ii++) {
-            final long actualVal = biActual[ii];
-            final long expectedVal = biExpected[ii];
-            Assert.eq(actualVal, "values match", expectedVal);
-        }
+        TstUtils.assertTableEquals(expected, actual, TableDiff.DiffItems.DoublesExact,
+                TableDiff.DiffItems.DoubleFraction);
     }
     // endregion Object Helper functions
 
@@ -327,12 +503,21 @@ public class TestRollingCount extends BaseUpdateByTest {
                 new String[] {"charCol"},
                 new TestDataGenerator[] {new CharGenerator('A', 'z', 0.1)}).t;
 
-        final Table actual = t.updateBy(UpdateByOperation.RollingCount(prevTicks, postTicks, primitiveColumns));
-        final Table expected = t.update(getCastingFormulas(primitiveColumns))
+        Table actual = t.updateBy(UpdateByOperation.RollingCount(prevTicks, postTicks, primitiveColumns));
+        Table expected = t.update(getCastingFormulas(primitiveColumns))
                 .updateBy(UpdateByOperation.RollingGroup(prevTicks, postTicks, primitiveColumns))
-                .update(getFormulas(primitiveColumns));
+                .update(getFormulas(primitiveColumns, "count"));
         TstUtils.assertTableEquals(expected, actual, TableDiff.DiffItems.DoublesExact,
                 TableDiff.DiffItems.DoubleFraction);
+
+        actual = t.updateBy(UpdateByOperation.RollingCountAll(prevTicks, postTicks, primitiveColumns));
+        expected = t.update(getCastingFormulas(primitiveColumns))
+                .updateBy(UpdateByOperation.RollingGroup(prevTicks, postTicks, primitiveColumns))
+                .update(getFormulas(primitiveColumns, "countAll"));
+        TstUtils.assertTableEquals(expected, actual, TableDiff.DiffItems.DoublesExact,
+                TableDiff.DiffItems.DoubleFraction);
+
+
 
         doTestStaticZeroKeyBigNumbers(t, prevTicks, postTicks);
     }
@@ -347,7 +532,7 @@ public class TestRollingCount extends BaseUpdateByTest {
         final Table actual = t.updateBy(UpdateByOperation.RollingCount("ts", prevTime, postTime, primitiveColumns));
         final Table expected = t.update(getCastingFormulas(primitiveColumns))
                 .updateBy(UpdateByOperation.RollingGroup("ts", prevTime, postTime, primitiveColumns))
-                .update(getFormulas(primitiveColumns));
+                .update(getFormulas(primitiveColumns, "count"));
         TstUtils.assertTableEquals(expected, actual, TableDiff.DiffItems.DoublesExact,
                 TableDiff.DiffItems.DoubleFraction);
 
@@ -455,7 +640,7 @@ public class TestRollingCount extends BaseUpdateByTest {
                 t.updateBy(UpdateByOperation.RollingCount(prevTicks, postTicks, primitiveColumns), "Sym");
         final Table expected = t.update(getCastingFormulas(primitiveColumns))
                 .updateBy(UpdateByOperation.RollingGroup(prevTicks, postTicks, primitiveColumns), "Sym")
-                .update(getFormulas(primitiveColumns));
+                .update(getFormulas(primitiveColumns, "count"));
         TstUtils.assertTableEquals(expected, actual, TableDiff.DiffItems.DoublesExact,
                 TableDiff.DiffItems.DoubleFraction);
 
@@ -473,7 +658,7 @@ public class TestRollingCount extends BaseUpdateByTest {
                 t.updateBy(UpdateByOperation.RollingCount("ts", prevTime, postTime, primitiveColumns), "Sym");
         final Table expected = t.update(getCastingFormulas(primitiveColumns))
                 .updateBy(UpdateByOperation.RollingGroup("ts", prevTime, postTime, primitiveColumns), "Sym")
-                .update(getFormulas(primitiveColumns));
+                .update(getFormulas(primitiveColumns, "count"));
         TstUtils.assertTableEquals(expected, actual, TableDiff.DiffItems.DoublesExact,
                 TableDiff.DiffItems.DoubleFraction);
 

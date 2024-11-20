@@ -232,6 +232,88 @@ public class TestNumeric extends BaseArrayTestCase {
         assertEquals(2, countZero((${pt.primitive})0, (${pt.primitive})40, (${pt.primitive})50, (${pt.primitive})60, (${pt.primitive})-1, (${pt.primitive})0));
     }
 
+    public void test${pt.boxed}CountNaN() {
+        assertEquals(0, countNaN(new ${pt.primitive}[]{}));
+        assertEquals(0, countNaN(new ${pt.primitive}[]{${pt.null}}));
+        assertEquals(NULL_LONG, countNaN((${pt.primitive}[])null));
+
+        assertEquals(0, countNaN(new ${pt.boxed}[]{}));
+        assertEquals(0, countNaN(new ${pt.boxed}[]{${pt.null}}));
+        assertEquals(NULL_LONG, countNaN((${pt.boxed}[])null));
+
+        assertEquals(0, countNaN(new ${pt.vectorDirect}()));
+        assertEquals(0, countNaN(new ${pt.vectorDirect}(${pt.null})));
+        assertEquals(NULL_LONG, countNaN((${pt.vectorDirect})null));
+
+        // check that functions can be resolved with varargs
+        assertEquals(0, countInf((${pt.primitive})0, (${pt.primitive})40, (${pt.primitive})50, (${pt.primitive})60, (${pt.primitive})-1, (${pt.primitive})0));
+
+<#if pt.valueType.isFloat >
+        assertEquals(2, countNaN(new ${pt.primitive}[]{0, Float.NaN, 40, Float.NaN, 50, (${pt.primitive}) -1, Float.NEGATIVE_INFINITY, ${pt.null}}));
+        assertEquals(3, countNaN(new ${pt.primitive}[]{0, Float.NEGATIVE_INFINITY, 5, Float.NaN, Float.POSITIVE_INFINITY, ${pt.null}, 0, Float.NaN, Float.NaN, (${pt.primitive}) -15}));
+
+        assertEquals(2, countNaN(new ${pt.boxed}[]{(${pt.primitive})0, (${pt.primitive})Float.NaN, (${pt.primitive})40, (${pt.primitive})Float.NaN, (${pt.primitive})50, (${pt.primitive})60, (${pt.primitive}) -1, (${pt.primitive})0}));
+        assertEquals(3, countNaN(new ${pt.boxed}[]{(${pt.primitive})0, (${pt.primitive})Float.NEGATIVE_INFINITY, (${pt.primitive})5, (${pt.primitive})Float.NaN, (${pt.primitive})Float.POSITIVE_INFINITY, ${pt.null}, (${pt.primitive})0, (${pt.primitive})Float.NaN, (${pt.primitive})Float.NaN, (${pt.primitive}) -15}));
+
+        assertEquals(2, countNaN(new ${pt.vectorDirect}(new ${pt.primitive}[]{0, Float.NaN, 40, Float.NaN, 50, (${pt.primitive}) -1, Float.NEGATIVE_INFINITY, ${pt.null}})));
+        assertEquals(3, countNaN(new ${pt.vectorDirect}(new ${pt.primitive}[]{0, Float.NEGATIVE_INFINITY, 5, Float.NaN, Float.POSITIVE_INFINITY, ${pt.null}, 0, Float.NaN, Float.NaN, (${pt.primitive}) -15})));
+
+        // check that functions can be resolved with varargs
+        assertEquals(1, countNaN((${pt.primitive})0, (${pt.primitive})40, Float.NaN, (${pt.primitive})50, (${pt.primitive})60, Float.NEGATIVE_INFINITY, (${pt.primitive})-1, (${pt.primitive})0));
+</#if>
+    }
+
+    public void test${pt.boxed}CountInf() {
+        assertEquals(0, countInf(new ${pt.primitive}[]{}));
+        assertEquals(0, countInf(new ${pt.primitive}[]{${pt.null}}));
+        assertEquals(NULL_LONG, countInf((${pt.primitive}[])null));
+
+        assertEquals(0, countInf(new ${pt.boxed}[]{}));
+        assertEquals(0, countInf(new ${pt.boxed}[]{${pt.null}}));
+        assertEquals(NULL_LONG, countInf((${pt.boxed}[])null));
+
+        assertEquals(0, countInf(new ${pt.vectorDirect}()));
+        assertEquals(0, countInf(new ${pt.vectorDirect}(${pt.null})));
+        assertEquals(NULL_LONG, countInf((${pt.vectorDirect})null));
+
+        // check that functions can be resolved with varargs
+        assertEquals(0, countInf((${pt.primitive})0, (${pt.primitive})40, (${pt.primitive})50, (${pt.primitive})60, (${pt.primitive})-1, (${pt.primitive})0));
+
+<#if pt.valueType.isFloat >
+        assertEquals(1, countInf(new ${pt.primitive}[]{0, Float.NaN, 40, Float.NaN, 50, (${pt.primitive}) -1, Float.NEGATIVE_INFINITY, ${pt.null}}));
+        assertEquals(2, countInf(new ${pt.primitive}[]{0, Float.NEGATIVE_INFINITY, 5, Float.NaN, Float.POSITIVE_INFINITY, ${pt.null}, 0, Float.NaN, Float.NaN, (${pt.primitive}) -15}));
+
+        assertEquals(0, countInf(new ${pt.boxed}[]{(${pt.primitive})0, (${pt.primitive})Float.NaN, (${pt.primitive})40, (${pt.primitive})Float.NaN, (${pt.primitive})50, (${pt.primitive})60, (${pt.primitive}) -1, (${pt.primitive})0}));
+        assertEquals(2, countInf(new ${pt.boxed}[]{(${pt.primitive})0, (${pt.primitive})Float.NEGATIVE_INFINITY, (${pt.primitive})5, (${pt.primitive})Float.NaN, (${pt.primitive})Float.POSITIVE_INFINITY, ${pt.null}, (${pt.primitive})0, (${pt.primitive})Float.NaN, (${pt.primitive})Float.NaN, (${pt.primitive}) -15}));
+
+        assertEquals(1, countInf(new ${pt.vectorDirect}(new ${pt.primitive}[]{0, Float.NaN, 40, Float.NaN, 50, (${pt.primitive}) -1, Float.NEGATIVE_INFINITY, ${pt.null}})));
+        assertEquals(2, countInf(new ${pt.vectorDirect}(new ${pt.primitive}[]{0, Float.NEGATIVE_INFINITY, 5, Float.NaN, Float.POSITIVE_INFINITY, ${pt.null}, 0, Float.NaN, Float.NaN, (${pt.primitive}) -15})));
+
+        // check that functions can be resolved with varargs
+        assertEquals(1, countInf((${pt.primitive})0, (${pt.primitive})40, Float.NaN, (${pt.primitive})50, (${pt.primitive})60, Float.NEGATIVE_INFINITY, (${pt.primitive})-1, (${pt.primitive})0));
+</#if>
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     public void test${pt.boxed}Max() {
         assertEquals((${pt.primitive}) 60, max(new ${pt.vectorDirect}(new ${pt.primitive}[]{0, 40, ${pt.null}, 50, 60, (${pt.primitive}) 1, 0})));
         assertEquals((${pt.primitive}) 60, max(new ${pt.vectorDirect}((${pt.primitive}) 40, ${pt.null}, (${pt.primitive}) 50, (${pt.primitive}) 60, (${pt.primitive}) 1)));

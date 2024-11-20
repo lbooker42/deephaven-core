@@ -9,6 +9,7 @@ import io.deephaven.chunk.attributes.Values;
 import io.deephaven.engine.table.impl.MatchPair;
 import io.deephaven.engine.table.impl.updateby.UpdateByOperator;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 public abstract class BaseObjectBinaryOperator<T> extends BaseObjectUpdateByOperator<T> {
     protected class Context extends BaseObjectUpdateByOperator<T>.Context {
@@ -42,7 +43,8 @@ public abstract class BaseObjectBinaryOperator<T> extends BaseObjectUpdateByOper
         }
     }
 
-    public BaseObjectBinaryOperator(@NotNull final MatchPair pair,
+    public BaseObjectBinaryOperator(
+            @Nullable final MatchPair pair,
             @NotNull final String[] affectingColumns,
             @NotNull final Class<T> type) {
         super(pair, affectingColumns, type);

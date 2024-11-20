@@ -4,6 +4,7 @@
 package io.deephaven.api.updateby;
 
 import io.deephaven.api.Pair;
+import io.deephaven.api.agg.util.AggCountType;
 import io.deephaven.api.updateby.spec.*;
 
 import java.time.Duration;
@@ -1491,25 +1492,171 @@ public interface UpdateByOperation {
     }
 
     /**
-     * Create a {@link RollingCountSpec rolling count} for the supplied column name pairs, using ticks as the windowing
-     * unit. Ticks are row counts and you may specify the previous window in number of rows to include. The current row
-     * is considered to belong to the reverse window, so calling this with {@code revTicks = 1} will simply return the
-     * current row. Specifying {@code revTicks = 10} will include the previous 9 rows to this one and this row for a
-     * total of 10 rows.
+     * Identical to {@link #RollingCountNonNull(long, String...)}, creates a rolling count operator for counting
+     * non-null values.
      *
      * @param revTicks the look-behind window size (in rows/ticks)
      * @param pairs The input/output column name pairs
      * @return The aggregation
      */
     static UpdateByOperation RollingCount(long revTicks, String... pairs) {
-        return RollingCountSpec.ofTicks(revTicks).clause(pairs);
+        return RollingCountNonNull(revTicks, pairs);
     }
 
     /**
-     * Create a {@link RollingCountSpec rolling count} for the supplied column name pairs, using ticks as the windowing
-     * unit. Ticks are row counts and you may specify the reverse and forward window in number of rows to include. The
-     * current row is considered to belong to the reverse window but not the forward window. Also, negative values are
-     * allowed and can be used to generate completely forward or completely reverse windows.
+     * Create a {@link RollingCountSpec rolling count} of all values in the window (including {@code null}) for the
+     * supplied column name pairs, using ticks as the windowing unit. Ticks are row counts and you may specify the
+     * previous window in number of rows to include. The current row is considered to belong to the reverse window, so
+     * calling this with {@code revTicks = 1} will simply return the current row. Specifying {@code revTicks = 10} will
+     * include the previous 9 rows to this one and this row for a total of 10 rows.
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountAll(long revTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, AggCountType.ALL).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of non-null values for the supplied column name pairs, using
+     * ticks as the windowing unit. Ticks are row counts and you may specify the previous window in number of rows to
+     * include. The current row is considered to belong to the reverse window, so calling this with {@code revTicks = 1}
+     * will simply return the current row. Specifying {@code revTicks = 10} will include the previous 9 rows to this one
+     * and this row for a total of 10 rows.
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNonNull(long revTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, AggCountType.NON_NULL).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of null values for the supplied column name pairs, using ticks as
+     * the windowing unit. Ticks are row counts and you may specify the previous window in number of rows to include.
+     * The current row is considered to belong to the reverse window, so calling this with {@code revTicks = 1} will
+     * simply return the current row. Specifying {@code revTicks = 10} will include the previous 9 rows to this one and
+     * this row for a total of 10 rows.
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNull(long revTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, AggCountType.NULL).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of negative values for the supplied column name pairs, using
+     * ticks as the windowing unit. Ticks are row counts and you may specify the previous window in number of rows to
+     * include. The current row is considered to belong to the reverse window, so calling this with {@code revTicks = 1}
+     * will simply return the current row. Specifying {@code revTicks = 10} will include the previous 9 rows to this one
+     * and this row for a total of 10 rows.
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNeg(long revTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, AggCountType.NEGATIVE).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of positive values for the supplied column name pairs, using
+     * ticks as the windowing unit. Ticks are row counts and you may specify the previous window in number of rows to
+     * include. The current row is considered to belong to the reverse window, so calling this with {@code revTicks = 1}
+     * will simply return the current row. Specifying {@code revTicks = 10} will include the previous 9 rows to this one
+     * and this row for a total of 10 rows.
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountPos(long revTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, AggCountType.POSITIVE).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of zero values for the supplied column name pairs, using ticks as
+     * the windowing unit. Ticks are row counts and you may specify the previous window in number of rows to include.
+     * The current row is considered to belong to the reverse window, so calling this with {@code revTicks = 1} will
+     * simply return the current row. Specifying {@code revTicks = 10} will include the previous 9 rows to this one and
+     * this row for a total of 10 rows.
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountZero(long revTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, AggCountType.ZERO).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of NaN values for the supplied column name pairs, using ticks as
+     * the windowing unit. Ticks are row counts and you may specify the previous window in number of rows to include.
+     * The current row is considered to belong to the reverse window, so calling this with {@code revTicks = 1} will
+     * simply return the current row. Specifying {@code revTicks = 10} will include the previous 9 rows to this one and
+     * this row for a total of 10 rows.
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNaN(long revTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, AggCountType.NAN).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of +/- infinite values for the supplied column name pairs, using
+     * ticks as the windowing unit. Ticks are row counts and you may specify the previous window in number of rows to
+     * include. The current row is considered to belong to the reverse window, so calling this with {@code revTicks = 1}
+     * will simply return the current row. Specifying {@code revTicks = 10} will include the previous 9 rows to this one
+     * and this row for a total of 10 rows.
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountInf(long revTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, AggCountType.INFINITE).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of finite values for the supplied column name pairs, using ticks
+     * as the windowing unit. Ticks are row counts and you may specify the previous window in number of rows to include.
+     * The current row is considered to belong to the reverse window, so calling this with {@code revTicks = 1} will
+     * simply return the current row. Specifying {@code revTicks = 10} will include the previous 9 rows to this one and
+     * this row for a total of 10 rows.
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountFinite(long revTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, AggCountType.FINITE).clause(pairs);
+    }
+
+    /**
+     * Identical to {@link #RollingCountNonNull(long, long, String...)}, creates a rolling count operator for counting
+     * non-null values.
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param fwdTicks the look-ahead window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCount(long revTicks, long fwdTicks, String... pairs) {
+        return RollingCountNonNull(revTicks, fwdTicks, pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of all values (including {@code null}) for the supplied column
+     * name pairs, using ticks as the windowing unit. Ticks are row counts and you may specify the reverse and forward
+     * window in number of rows to include. The current row is considered to belong to the reverse window but not the
+     * forward window. Also, negative values are allowed and can be used to generate completely forward or completely
+     * reverse windows.
      * <p>
      * Here are some examples of window values:
      * <ul>
@@ -1531,15 +1678,268 @@ public interface UpdateByOperation {
      * @param pairs The input/output column name pairs
      * @return The aggregation
      */
-    static UpdateByOperation RollingCount(long revTicks, long fwdTicks, String... pairs) {
-        return RollingCountSpec.ofTicks(revTicks, fwdTicks).clause(pairs);
+    static UpdateByOperation RollingCountAll(long revTicks, long fwdTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, fwdTicks, AggCountType.ALL).clause(pairs);
     }
 
     /**
-     * Create a {@link RollingCountSpec rolling count} for the supplied column name pairs, using time as the windowing
-     * unit. This function accepts {@link Duration duration} as the reverse window parameter. A row containing a
-     * {@code null} in the timestamp column belongs to no window and will not have a value computed or be considered in
-     * the windows of other rows.
+     * Create a {@link RollingCountSpec rolling count} of non-null values for the supplied column name pairs, using
+     * ticks as the windowing unit. Ticks are row counts and you may specify the reverse and forward window in number of
+     * rows to include. The current row is considered to belong to the reverse window but not the forward window. Also,
+     * negative values are allowed and can be used to generate completely forward or completely reverse windows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revTicks = 1, fwdTicks = 0} - contains only the current row</li>
+     * <li>{@code revTicks = 10, fwdTicks = 0} - contains 9 previous rows and the current row</li>
+     * <li>{@code revTicks = 0, fwdTicks = 10} - contains the following 10 rows, excludes the current row</li>
+     * <li>{@code revTicks = 10, fwdTicks = 10} - contains the previous 9 rows, the current row and the 10 rows
+     * following</li>
+     * <li>{@code revTicks = 10, fwdTicks = -5} - contains 5 rows, beginning at 9 rows before, ending at 5 rows before
+     * the current row (inclusive)</li>
+     * <li>{@code revTicks = 11, fwdTicks = -1} - contains 10 rows, beginning at 10 rows before, ending at 1 row before
+     * the current row (inclusive)</li>
+     * <li>{@code revTicks = -5, fwdTicks = 10} - contains 5 rows, beginning 5 rows following, ending at 10 rows
+     * following the current row (inclusive)</li>
+     * </ul>
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param fwdTicks the look-ahead window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNonNull(long revTicks, long fwdTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, fwdTicks, AggCountType.NON_NULL).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of null values for the supplied column name pairs, using ticks as
+     * the windowing unit. Ticks are row counts and you may specify the reverse and forward window in number of rows to
+     * include. The current row is considered to belong to the reverse window but not the forward window. Also, negative
+     * values are allowed and can be used to generate completely forward or completely reverse windows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revTicks = 1, fwdTicks = 0} - contains only the current row</li>
+     * <li>{@code revTicks = 10, fwdTicks = 0} - contains 9 previous rows and the current row</li>
+     * <li>{@code revTicks = 0, fwdTicks = 10} - contains the following 10 rows, excludes the current row</li>
+     * <li>{@code revTicks = 10, fwdTicks = 10} - contains the previous 9 rows, the current row and the 10 rows
+     * following</li>
+     * <li>{@code revTicks = 10, fwdTicks = -5} - contains 5 rows, beginning at 9 rows before, ending at 5 rows before
+     * the current row (inclusive)</li>
+     * <li>{@code revTicks = 11, fwdTicks = -1} - contains 10 rows, beginning at 10 rows before, ending at 1 row before
+     * the current row (inclusive)</li>
+     * <li>{@code revTicks = -5, fwdTicks = 10} - contains 5 rows, beginning 5 rows following, ending at 10 rows
+     * following the current row (inclusive)</li>
+     * </ul>
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param fwdTicks the look-ahead window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNull(long revTicks, long fwdTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, fwdTicks, AggCountType.NULL).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of negative values for the supplied column name pairs, using
+     * ticks as the windowing unit. Ticks are row counts and you may specify the reverse and forward window in number of
+     * rows to include. The current row is considered to belong to the reverse window but not the forward window. Also,
+     * negative values are allowed and can be used to generate completely forward or completely reverse windows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revTicks = 1, fwdTicks = 0} - contains only the current row</li>
+     * <li>{@code revTicks = 10, fwdTicks = 0} - contains 9 previous rows and the current row</li>
+     * <li>{@code revTicks = 0, fwdTicks = 10} - contains the following 10 rows, excludes the current row</li>
+     * <li>{@code revTicks = 10, fwdTicks = 10} - contains the previous 9 rows, the current row and the 10 rows
+     * following</li>
+     * <li>{@code revTicks = 10, fwdTicks = -5} - contains 5 rows, beginning at 9 rows before, ending at 5 rows before
+     * the current row (inclusive)</li>
+     * <li>{@code revTicks = 11, fwdTicks = -1} - contains 10 rows, beginning at 10 rows before, ending at 1 row before
+     * the current row (inclusive)</li>
+     * <li>{@code revTicks = -5, fwdTicks = 10} - contains 5 rows, beginning 5 rows following, ending at 10 rows
+     * following the current row (inclusive)</li>
+     * </ul>
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param fwdTicks the look-ahead window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNeg(long revTicks, long fwdTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, fwdTicks, AggCountType.NEGATIVE).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of positive values for the supplied column name pairs, using
+     * ticks as the windowing unit. Ticks are row counts and you may specify the reverse and forward window in number of
+     * rows to include. The current row is considered to belong to the reverse window but not the forward window. Also,
+     * negative values are allowed and can be used to generate completely forward or completely reverse windows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revTicks = 1, fwdTicks = 0} - contains only the current row</li>
+     * <li>{@code revTicks = 10, fwdTicks = 0} - contains 9 previous rows and the current row</li>
+     * <li>{@code revTicks = 0, fwdTicks = 10} - contains the following 10 rows, excludes the current row</li>
+     * <li>{@code revTicks = 10, fwdTicks = 10} - contains the previous 9 rows, the current row and the 10 rows
+     * following</li>
+     * <li>{@code revTicks = 10, fwdTicks = -5} - contains 5 rows, beginning at 9 rows before, ending at 5 rows before
+     * the current row (inclusive)</li>
+     * <li>{@code revTicks = 11, fwdTicks = -1} - contains 10 rows, beginning at 10 rows before, ending at 1 row before
+     * the current row (inclusive)</li>
+     * <li>{@code revTicks = -5, fwdTicks = 10} - contains 5 rows, beginning 5 rows following, ending at 10 rows
+     * following the current row (inclusive)</li>
+     * </ul>
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param fwdTicks the look-ahead window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountPos(long revTicks, long fwdTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, fwdTicks, AggCountType.POSITIVE).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of zero values for the supplied column name pairs, using ticks as
+     * the windowing unit. Ticks are row counts and you may specify the reverse and forward window in number of rows to
+     * include. The current row is considered to belong to the reverse window but not the forward window. Also, negative
+     * values are allowed and can be used to generate completely forward or completely reverse windows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revTicks = 1, fwdTicks = 0} - contains only the current row</li>
+     * <li>{@code revTicks = 10, fwdTicks = 0} - contains 9 previous rows and the current row</li>
+     * <li>{@code revTicks = 0, fwdTicks = 10} - contains the following 10 rows, excludes the current row</li>
+     * <li>{@code revTicks = 10, fwdTicks = 10} - contains the previous 9 rows, the current row and the 10 rows
+     * following</li>
+     * <li>{@code revTicks = 10, fwdTicks = -5} - contains 5 rows, beginning at 9 rows before, ending at 5 rows before
+     * the current row (inclusive)</li>
+     * <li>{@code revTicks = 11, fwdTicks = -1} - contains 10 rows, beginning at 10 rows before, ending at 1 row before
+     * the current row (inclusive)</li>
+     * <li>{@code revTicks = -5, fwdTicks = 10} - contains 5 rows, beginning 5 rows following, ending at 10 rows
+     * following the current row (inclusive)</li>
+     * </ul>
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param fwdTicks the look-ahead window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountZero(long revTicks, long fwdTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, fwdTicks, AggCountType.ZERO).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of NaN values for the supplied column name pairs, using ticks as
+     * the windowing unit. Ticks are row counts and you may specify the reverse and forward window in number of rows to
+     * include. The current row is considered to belong to the reverse window but not the forward window. Also, negative
+     * values are allowed and can be used to generate completely forward or completely reverse windows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revTicks = 1, fwdTicks = 0} - contains only the current row</li>
+     * <li>{@code revTicks = 10, fwdTicks = 0} - contains 9 previous rows and the current row</li>
+     * <li>{@code revTicks = 0, fwdTicks = 10} - contains the following 10 rows, excludes the current row</li>
+     * <li>{@code revTicks = 10, fwdTicks = 10} - contains the previous 9 rows, the current row and the 10 rows
+     * following</li>
+     * <li>{@code revTicks = 10, fwdTicks = -5} - contains 5 rows, beginning at 9 rows before, ending at 5 rows before
+     * the current row (inclusive)</li>
+     * <li>{@code revTicks = 11, fwdTicks = -1} - contains 10 rows, beginning at 10 rows before, ending at 1 row before
+     * the current row (inclusive)</li>
+     * <li>{@code revTicks = -5, fwdTicks = 10} - contains 5 rows, beginning 5 rows following, ending at 10 rows
+     * following the current row (inclusive)</li>
+     * </ul>
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param fwdTicks the look-ahead window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNaN(long revTicks, long fwdTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, fwdTicks, AggCountType.NAN).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of +/- infinite values for the supplied column name pairs, using
+     * ticks as the windowing unit. Ticks are row counts and you may specify the reverse and forward window in number of
+     * rows to include. The current row is considered to belong to the reverse window but not the forward window. Also,
+     * negative values are allowed and can be used to generate completely forward or completely reverse windows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revTicks = 1, fwdTicks = 0} - contains only the current row</li>
+     * <li>{@code revTicks = 10, fwdTicks = 0} - contains 9 previous rows and the current row</li>
+     * <li>{@code revTicks = 0, fwdTicks = 10} - contains the following 10 rows, excludes the current row</li>
+     * <li>{@code revTicks = 10, fwdTicks = 10} - contains the previous 9 rows, the current row and the 10 rows
+     * following</li>
+     * <li>{@code revTicks = 10, fwdTicks = -5} - contains 5 rows, beginning at 9 rows before, ending at 5 rows before
+     * the current row (inclusive)</li>
+     * <li>{@code revTicks = 11, fwdTicks = -1} - contains 10 rows, beginning at 10 rows before, ending at 1 row before
+     * the current row (inclusive)</li>
+     * <li>{@code revTicks = -5, fwdTicks = 10} - contains 5 rows, beginning 5 rows following, ending at 10 rows
+     * following the current row (inclusive)</li>
+     * </ul>
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param fwdTicks the look-ahead window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountInf(long revTicks, long fwdTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, fwdTicks, AggCountType.INFINITE).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of finite values for the supplied column name pairs, using ticks
+     * as the windowing unit. Ticks are row counts and you may specify the reverse and forward window in number of rows
+     * to include. The current row is considered to belong to the reverse window but not the forward window. Also,
+     * negative values are allowed and can be used to generate completely forward or completely reverse windows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revTicks = 1, fwdTicks = 0} - contains only the current row</li>
+     * <li>{@code revTicks = 10, fwdTicks = 0} - contains 9 previous rows and the current row</li>
+     * <li>{@code revTicks = 0, fwdTicks = 10} - contains the following 10 rows, excludes the current row</li>
+     * <li>{@code revTicks = 10, fwdTicks = 10} - contains the previous 9 rows, the current row and the 10 rows
+     * following</li>
+     * <li>{@code revTicks = 10, fwdTicks = -5} - contains 5 rows, beginning at 9 rows before, ending at 5 rows before
+     * the current row (inclusive)</li>
+     * <li>{@code revTicks = 11, fwdTicks = -1} - contains 10 rows, beginning at 10 rows before, ending at 1 row before
+     * the current row (inclusive)</li>
+     * <li>{@code revTicks = -5, fwdTicks = 10} - contains 5 rows, beginning 5 rows following, ending at 10 rows
+     * following the current row (inclusive)</li>
+     * </ul>
+     *
+     * @param revTicks the look-behind window size (in rows/ticks)
+     * @param fwdTicks the look-ahead window size (in rows/ticks)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountFinite(long revTicks, long fwdTicks, String... pairs) {
+        return RollingCountSpec.ofTicks(revTicks, fwdTicks, AggCountType.FINITE).clause(pairs);
+    }
+
+    /**
+     * Identical to {@link #RollingCountNonNull(String, Duration, String...)}, creates a rolling count operator for
+     * counting non-null values.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCount(String timestampCol, Duration revDuration, String... pairs) {
+        return RollingCountNonNull(timestampCol, revDuration, pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of all values (including {@code null}) for the supplied column
+     * name pairs, using time as the windowing unit. This function accepts {@link Duration duration} as the reverse
+     * window parameter. A row containing a {@code null} in the timestamp column belongs to no window and will not have
+     * a value computed or be considered in the windows of other rows.
      * <p>
      * Here are some examples of window values:
      * <ul>
@@ -1552,16 +1952,199 @@ public interface UpdateByOperation {
      * @param pairs The input/output column name pairs
      * @return The aggregation
      */
-    static UpdateByOperation RollingCount(String timestampCol, Duration revDuration, String... pairs) {
-        return RollingCountSpec.ofTime(timestampCol, revDuration).clause(pairs);
+    static UpdateByOperation RollingCountAll(String timestampCol, Duration revDuration, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revDuration, AggCountType.ALL).clause(pairs);
     }
 
     /**
-     * Create a {@link RollingCountSpec rolling count} for the supplied column name pairs, using time as the windowing
-     * unit. This function accepts {@link Duration durations} as the reverse and forward window parameters. Negative
-     * values are allowed and can be used to generate completely forward or completely reverse windows. A row containing
-     * a {@code null} in the timestamp column belongs to no window and will not have a value computed or be considered
-     * in the windows of other rows.
+     * Create a {@link RollingCountSpec rolling count} of non-null values for the supplied column name pairs, using time
+     * as the windowing unit. This function accepts {@link Duration duration} as the reverse window parameter. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revDuration = 0m} - contains rows that exactly match the current row timestamp</li>
+     * <li>{@code revDuration = 10m} - contains rows from 10m earlier through the current row timestamp (inclusive)</li>
+     * </ul>
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNonNull(String timestampCol, Duration revDuration, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revDuration, AggCountType.NON_NULL).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of null values for the supplied column name pairs, using time as
+     * the windowing unit. This function accepts {@link Duration durations} as the reverse window parameter. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revDuration = 0m} - contains rows that exactly match the current row timestamp</li>
+     * <li>{@code revDuration = 10m} - contains rows from 10m earlier through the current row timestamp (inclusive)</li>
+     * </ul>
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNull(String timestampCol, Duration revDuration, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revDuration, AggCountType.NULL).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of negative values for the supplied column name pairs, using time
+     * as the windowing unit. This function accepts {@link Duration durations} as the reverse window parameter. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revDuration = 0m} - contains rows that exactly match the current row timestamp</li>
+     * <li>{@code revDuration = 10m} - contains rows from 10m earlier through the current row timestamp (inclusive)</li>
+     * </ul>
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNeg(String timestampCol, Duration revDuration, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revDuration, AggCountType.NEGATIVE).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of positive values for the supplied column name pairs, using time
+     * as the windowing unit. This function accepts {@link Duration durations} as the reverse window parameter. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revDuration = 0m} - contains rows that exactly match the current row timestamp</li>
+     * <li>{@code revDuration = 10m} - contains rows from 10m earlier through the current row timestamp (inclusive)</li>
+     * </ul>
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountPos(String timestampCol, Duration revDuration, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revDuration, AggCountType.POSITIVE).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of zero values for the supplied column name pairs, using time as
+     * the windowing unit. This function accepts {@link Duration durations} as the reverse window parameter. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revDuration = 0m} - contains rows that exactly match the current row timestamp</li>
+     * <li>{@code revDuration = 10m} - contains rows from 10m earlier through the current row timestamp (inclusive)</li>
+     * </ul>
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountZero(String timestampCol, Duration revDuration, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revDuration, AggCountType.ZERO).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of NaN values for the supplied column name pairs, using time as
+     * the windowing unit. This function accepts {@link Duration durations} as the reverse window parameter. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revDuration = 0m} - contains rows that exactly match the current row timestamp</li>
+     * <li>{@code revDuration = 10m} - contains rows from 10m earlier through the current row timestamp (inclusive)</li>
+     * </ul>
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNaN(String timestampCol, Duration revDuration, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revDuration, AggCountType.NAN).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of +/- infinite values for the supplied column name pairs, using
+     * time as the windowing unit. This function accepts {@link Duration durations} as the reverse window parameter. A
+     * row containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or
+     * be considered in the windows of other rows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revDuration = 0m} - contains rows that exactly match the current row timestamp</li>
+     * <li>{@code revDuration = 10m} - contains rows from 10m earlier through the current row timestamp (inclusive)</li>
+     * </ul>
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountInf(String timestampCol, Duration revDuration, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revDuration, AggCountType.INFINITE).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of finite values for the supplied column name pairs, using time
+     * as the windowing unit. This function accepts {@link Duration durations} as the reverse window parameter. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revDuration = 0m} - contains rows that exactly match the current row timestamp</li>
+     * <li>{@code revDuration = 10m} - contains rows from 10m earlier through the current row timestamp (inclusive)</li>
+     * </ul>
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountFinite(String timestampCol, Duration revDuration, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revDuration, AggCountType.FINITE).clause(pairs);
+    }
+
+    /**
+     * Identical to {@link #RollingCountNonNull(String, Duration, Duration, String...)}, creates a rolling count
+     * operator for counting non-null values.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param fwdDuration the look-ahead window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCount(String timestampCol, Duration revDuration, Duration fwdDuration,
+            String... pairs) {
+        return RollingCountNonNull(timestampCol, revDuration, fwdDuration, pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of all values (including @code null}) for the supplied column
+     * name pairs, using time as the windowing unit. This function accepts {@link Duration durations} as the reverse and
+     * forward window parameters. Negative values are allowed and can be used to generate completely forward or
+     * completely reverse windows. A row containing a {@code null} in the timestamp column belongs to no window and will
+     * not have a value computed or be considered in the windows of other rows.
      * <p>
      * Here are some examples of window values:
      * <ul>
@@ -1584,16 +2167,287 @@ public interface UpdateByOperation {
      * @param pairs The input/output column name pairs
      * @return The aggregation
      */
-    static UpdateByOperation RollingCount(String timestampCol, Duration revDuration, Duration fwdDuration,
+    static UpdateByOperation RollingCountAll(String timestampCol, Duration revDuration, Duration fwdDuration,
             String... pairs) {
-        return RollingCountSpec.ofTime(timestampCol, revDuration, fwdDuration).clause(pairs);
+        return RollingCountSpec.ofTime(timestampCol, revDuration, fwdDuration, AggCountType.ALL)
+                .clause(pairs);
     }
 
     /**
-     * Create a {@link RollingCountSpec rolling count} for the supplied column name pairs, using time as the windowing
-     * unit. This function accepts {@code nanoseconds} as the reverse window parameters. A row containing a {@code null}
-     * in the timestamp column belongs to no window and will not have a value computed or be considered in the windows
-     * of other rows.
+     * Create a {@link RollingCountSpec rolling count} of non-null values for the supplied column name pairs, using time
+     * as the windowing unit. This function accepts {@link Duration durations} as the reverse and forward window
+     * parameters. Negative values are allowed and can be used to generate completely forward or completely reverse
+     * windows. A row containing a {@code null} in the timestamp column belongs to no window and will not have a value
+     * computed or be considered in the windows of other rows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revDuration = 0m, fwdDuration = 0m} - contains rows that exactly match the current row timestamp</li>
+     * <li>{@code revDuration = 10m, fwdDuration = 0m} - contains rows from 10m earlier through the current row
+     * timestamp (inclusive)</li>
+     * <li>{@code revDuration = 0m, fwdDuration = 10m} - contains rows from the current row through 10m following the
+     * current row timestamp (inclusive)</li>
+     * <li>{@code revDuration = 10m, fwdDuration = 10m} - contains rows from 10m earlier through 10m following the
+     * current row timestamp (inclusive)</li>
+     * <li>{@code revDuration = 10m, fwdDuration = -5m} - contains rows from 10m earlier through 5m before the current
+     * row timestamp (inclusive), this is a purely backwards looking window</li>
+     * <li>{@code revDuration = -5m, fwdDuration = 10m} - contains rows from 5m following through 10m following the
+     * current row timestamp (inclusive), this is a purely forwards looking window</li>
+     * </ul>
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param fwdDuration the look-ahead window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNonNull(String timestampCol, Duration revDuration, Duration fwdDuration,
+            String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revDuration, fwdDuration, AggCountType.NON_NULL)
+                .clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of null values for the supplied column name pairs, using time as
+     * the windowing unit. This function accepts {@link Duration durations} as the reverse and forward window
+     * parameters. Negative values are allowed and can be used to generate completely forward or completely reverse
+     * windows. A row containing a {@code null} in the timestamp column belongs to no window and will not have a value
+     * computed or be considered in the windows of other rows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revDuration = 0m, fwdDuration = 0m} - contains rows that exactly match the current row timestamp</li>
+     * <li>{@code revDuration = 10m, fwdDuration = 0m} - contains rows from 10m earlier through the current row
+     * timestamp (inclusive)</li>
+     * <li>{@code revDuration = 0m, fwdDuration = 10m} - contains rows from the current row through 10m following the
+     * current row timestamp (inclusive)</li>
+     * <li>{@code revDuration = 10m, fwdDuration = 10m} - contains rows from 10m earlier through 10m following the
+     * current row timestamp (inclusive)</li>
+     * <li>{@code revDuration = 10m, fwdDuration = -5m} - contains rows from 10m earlier through 5m before the current
+     * row timestamp (inclusive), this is a purely backwards looking window</li>
+     * <li>{@code revDuration = -5m, fwdDuration = 10m} - contains rows from 5m following through 10m following the
+     * current row timestamp (inclusive), this is a purely forwards looking window</li>
+     * </ul>
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param fwdDuration the look-ahead window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNull(String timestampCol, Duration revDuration, Duration fwdDuration,
+            String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revDuration, fwdDuration, AggCountType.NULL)
+                .clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of negative values for the supplied column name pairs, using time
+     * as the windowing unit. This function accepts {@link Duration durations} as the reverse and forward window
+     * parameters. Negative values are allowed and can be used to generate completely forward or completely reverse
+     * windows. A row containing a {@code null} in the timestamp column belongs to no window and will not have a value
+     * computed or be considered in the windows of other rows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revDuration = 0m, fwdDuration = 0m} - contains rows that exactly match the current row timestamp</li>
+     * <li>{@code revDuration = 10m, fwdDuration = 0m} - contains rows from 10m earlier through the current row
+     * timestamp (inclusive)</li>
+     * <li>{@code revDuration = 0m, fwdDuration = 10m} - contains rows from the current row through 10m following the
+     * current row timestamp (inclusive)</li>
+     * <li>{@code revDuration = 10m, fwdDuration = 10m} - contains rows from 10m earlier through 10m following the
+     * current row timestamp (inclusive)</li>
+     * <li>{@code revDuration = 10m, fwdDuration = -5m} - contains rows from 10m earlier through 5m before the current
+     * row timestamp (inclusive), this is a purely backwards looking window</li>
+     * <li>{@code revDuration = -5m, fwdDuration = 10m} - contains rows from 5m following through 10m following the
+     * current row timestamp (inclusive), this is a purely forwards looking window</li>
+     * </ul>
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param fwdDuration the look-ahead window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNeg(String timestampCol, Duration revDuration, Duration fwdDuration,
+            String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revDuration, fwdDuration, AggCountType.NEGATIVE)
+                .clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of positive values for the supplied column name pairs, using time
+     * as the windowing unit. This function accepts {@link Duration durations} as the reverse and forward window
+     * parameters. Negative values are allowed and can be used to generate completely forward or completely reverse
+     * windows. A row containing a {@code null} in the timestamp column belongs to no window and will not have a value
+     * computed or be considered in the windows of other rows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revDuration = 0m, fwdDuration = 0m} - contains rows that exactly match the current row timestamp</li>
+     * <li>{@code revDuration = 10m, fwdDuration = 0m} - contains rows from 10m earlier through the current row
+     * timestamp (inclusive)</li>
+     * <li>{@code revDuration = 0m, fwdDuration = 10m} - contains rows from the current row through 10m following the
+     * current row timestamp (inclusive)</li>
+     * <li>{@code revDuration = 10m, fwdDuration = 10m} - contains rows from 10m earlier through 10m following the
+     * current row timestamp (inclusive)</li>
+     * <li>{@code revDuration = 10m, fwdDuration = -5m} - contains rows from 10m earlier through 5m before the current
+     * row timestamp (inclusive), this is a purely backwards looking window</li>
+     * <li>{@code revDuration = -5m, fwdDuration = 10m} - contains rows from 5m following through 10m following the
+     * current row timestamp (inclusive), this is a purely forwards looking window</li>
+     * </ul>
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param fwdDuration the look-ahead window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountPos(String timestampCol, Duration revDuration, Duration fwdDuration,
+            String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revDuration, fwdDuration, AggCountType.POSITIVE)
+                .clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of zero values for the supplied column name pairs, using time as
+     * the windowing unit. This function accepts {@link Duration durations} as the reverse and forward window
+     * parameters. Negative values are allowed and can be used to generate completely forward or completely reverse
+     * windows. A row containing a {@code null} in the timestamp column belongs to no window and will not have a value
+     * computed or be considered in the windows of other rows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revDuration = 0m, fwdDuration = 0m} - contains rows that exactly match the current row timestamp</li>
+     * <li>{@code revDuration = 10m, fwdDuration = 0m} - contains rows from 10m earlier through the current row
+     * timestamp (inclusive)</li>
+     * <li>{@code revDuration = 0m, fwdDuration = 10m} - contains rows from the current row through 10m following the
+     * current row timestamp (inclusive)</li>
+     * <li>{@code revDuration = 10m, fwdDuration = 10m} - contains rows from 10m earlier through 10m following the
+     * current row timestamp (inclusive)</li>
+     * <li>{@code revDuration = 10m, fwdDuration = -5m} - contains rows from 10m earlier through 5m before the current
+     * row timestamp (inclusive), this is a purely backwards looking window</li>
+     * <li>{@code revDuration = -5m, fwdDuration = 10m} - contains rows from 5m following through 10m following the
+     * current row timestamp (inclusive), this is a purely forwards looking window</li>
+     * </ul>
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param fwdDuration the look-ahead window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountZero(String timestampCol, Duration revDuration, Duration fwdDuration,
+            String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revDuration, fwdDuration, AggCountType.ZERO)
+                .clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of NaN values for the supplied column name pairs, using time as
+     * the windowing unit. This function accepts {@link Duration durations} as the reverse and forward window
+     * parameters. Negative values are allowed and can be used to generate completely forward or completely reverse
+     * windows. A row containing a {@code null} in the timestamp column belongs to no window and will not have a value
+     * computed or be considered in the windows of other rows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revDuration = 0m, fwdDuration = 0m} - contains rows that exactly match the current row timestamp</li>
+     * <li>{@code revDuration = 10m, fwdDuration = 0m} - contains rows from 10m earlier through the current row
+     * timestamp (inclusive)</li>
+     * <li>{@code revDuration = 0m, fwdDuration = 10m} - contains rows from the current row through 10m following the
+     * current row timestamp (inclusive)</li>
+     * <li>{@code revDuration = 10m, fwdDuration = 10m} - contains rows from 10m earlier through 10m following the
+     * current row timestamp (inclusive)</li>
+     * <li>{@code revDuration = 10m, fwdDuration = -5m} - contains rows from 10m earlier through 5m before the current
+     * row timestamp (inclusive), this is a purely backwards looking window</li>
+     * <li>{@code revDuration = -5m, fwdDuration = 10m} - contains rows from 5m following through 10m following the
+     * current row timestamp (inclusive), this is a purely forwards looking window</li>
+     * </ul>
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param fwdDuration the look-ahead window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNaN(String timestampCol, Duration revDuration, Duration fwdDuration,
+            String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revDuration, fwdDuration, AggCountType.NAN)
+                .clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of +/- infinite values for the supplied column name pairs, using
+     * time as the windowing unit. This function accepts {@link Duration durations} as the reverse and forward window
+     * parameters. Negative values are allowed and can be used to generate completely forward or completely reverse
+     * windows. A row containing a {@code null} in the timestamp column belongs to no window and will not have a value
+     * computed or be considered in the windows of other rows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revDuration = 0m, fwdDuration = 0m} - contains rows that exactly match the current row timestamp</li>
+     * <li>{@code revDuration = 10m, fwdDuration = 0m} - contains rows from 10m earlier through the current row
+     * timestamp (inclusive)</li>
+     * <li>{@code revDuration = 0m, fwdDuration = 10m} - contains rows from the current row through 10m following the
+     * current row timestamp (inclusive)</li>
+     * <li>{@code revDuration = 10m, fwdDuration = 10m} - contains rows from 10m earlier through 10m following the
+     * current row timestamp (inclusive)</li>
+     * <li>{@code revDuration = 10m, fwdDuration = -5m} - contains rows from 10m earlier through 5m before the current
+     * row timestamp (inclusive), this is a purely backwards looking window</li>
+     * <li>{@code revDuration = -5m, fwdDuration = 10m} - contains rows from 5m following through 10m following the
+     * current row timestamp (inclusive), this is a purely forwards looking window</li>
+     * </ul>
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param fwdDuration the look-ahead window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountInf(String timestampCol, Duration revDuration, Duration fwdDuration,
+            String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revDuration, fwdDuration, AggCountType.INFINITE)
+                .clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of finite values for the supplied column name pairs, using time
+     * as the windowing unit. This function accepts {@link Duration durations} as the reverse and forward window
+     * parameters. Negative values are allowed and can be used to generate completely forward or completely reverse
+     * windows. A row containing a {@code null} in the timestamp column belongs to no window and will not have a value
+     * computed or be considered in the windows of other rows.
+     * <p>
+     * Here are some examples of window values:
+     * <ul>
+     * <li>{@code revDuration = 0m, fwdDuration = 0m} - contains rows that exactly match the current row timestamp</li>
+     * <li>{@code revDuration = 10m, fwdDuration = 0m} - contains rows from 10m earlier through the current row
+     * timestamp (inclusive)</li>
+     * <li>{@code revDuration = 0m, fwdDuration = 10m} - contains rows from the current row through 10m following the
+     * current row timestamp (inclusive)</li>
+     * <li>{@code revDuration = 10m, fwdDuration = 10m} - contains rows from 10m earlier through 10m following the
+     * current row timestamp (inclusive)</li>
+     * <li>{@code revDuration = 10m, fwdDuration = -5m} - contains rows from 10m earlier through 5m before the current
+     * row timestamp (inclusive), this is a purely backwards looking window</li>
+     * <li>{@code revDuration = -5m, fwdDuration = 10m} - contains rows from 5m following through 10m following the
+     * current row timestamp (inclusive), this is a purely forwards looking window</li>
+     * </ul>
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revDuration the look-behind window size (in Duration)
+     * @param fwdDuration the look-ahead window size (in Duration)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountFinite(String timestampCol, Duration revDuration, Duration fwdDuration,
+            String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revDuration, fwdDuration, AggCountType.FINITE)
+                .clause(pairs);
+    }
+
+    /**
+     * Identical to {@link #RollingCountNonNull(String, long, String...)}, creates a rolling count operator for counting
+     * non-null values.
      *
      * @param timestampCol the name of the timestamp column
      * @param revTime the look-behind window size (in nanoseconds)
@@ -1601,15 +2455,147 @@ public interface UpdateByOperation {
      * @return The aggregation
      */
     static UpdateByOperation RollingCount(String timestampCol, long revTime, String... pairs) {
-        return RollingCountSpec.ofTime(timestampCol, revTime).clause(pairs);
+        return RollingCountNonNull(timestampCol, revTime, pairs);
     }
 
     /**
-     * Create a {@link RollingCountSpec rolling count} for the supplied column name pairs, using time as the windowing
-     * unit. This function accepts {@code nanoseconds} as the reverse and forward window parameters. Negative values are
-     * allowed and can be used to generate completely forward or completely reverse windows. A row containing a
-     * {@code null} in the timestamp column belongs to no window and will not have a value computed or be considered in
-     * the windows of other rows.
+     * Create a {@link RollingCountSpec rolling count} of all values (including {@code null}) for the supplied column
+     * name pairs, using time as the windowing unit. This function accepts {@code nanoseconds} as the reverse window
+     * parameters. A row containing a {@code null} in the timestamp column belongs to no window and will not have a
+     * value computed or be considered in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountAll(String timestampCol, long revTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, AggCountType.ALL).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of non-null values for the supplied column name pairs, using time
+     * as the windowing unit. This function accepts {@code nanoseconds} as the reverse window parameters. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNonNull(String timestampCol, long revTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, AggCountType.NON_NULL).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of null values for the supplied column name pairs, using time as
+     * the windowing unit. This function accepts {@code nanoseconds} as the reverse window parameters. A row containing
+     * a {@code null} in the timestamp column belongs to no window and will not have a value computed or be considered
+     * in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNull(String timestampCol, long revTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, AggCountType.NULL).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of negative values for the supplied column name pairs, using time
+     * as the windowing unit. This function accepts {@code nanoseconds} as the reverse window parameters. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNeg(String timestampCol, long revTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, AggCountType.NEGATIVE).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of positive values for the supplied column name pairs, using time
+     * as the windowing unit. This function accepts {@code nanoseconds} as the reverse window parameters. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountPos(String timestampCol, long revTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, AggCountType.POSITIVE).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of zero values for the supplied column name pairs, using time as
+     * the windowing unit. This function accepts {@code nanoseconds} as the reverse window parameters. A row containing
+     * a {@code null} in the timestamp column belongs to no window and will not have a value computed or be considered
+     * in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountZero(String timestampCol, long revTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, AggCountType.ZERO).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of NaN values for the supplied column name pairs, using time as
+     * the windowing unit. This function accepts {@code nanoseconds} as the reverse window parameters. A row containing
+     * a {@code null} in the timestamp column belongs to no window and will not have a value computed or be considered
+     * in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNaN(String timestampCol, long revTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, AggCountType.NAN).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of +/- infinite values for the supplied column name pairs, using
+     * time as the windowing unit. This function accepts {@code nanoseconds} as the reverse window parameters. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountInf(String timestampCol, long revTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, AggCountType.INFINITE).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of finite values for the supplied column name pairs, using time
+     * as the windowing unit. This function accepts {@code nanoseconds} as the reverse window parameters. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountFinite(String timestampCol, long revTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, AggCountType.FINITE).clause(pairs);
+    }
+
+    /**
+     * Identical to {@link #RollingCountNonNull(String, long, long, String...)}, creates a rolling count operator for
+     * counting non-null values.
      *
      * @param timestampCol the name of the timestamp column
      * @param revTime the look-behind window size (in nanoseconds)
@@ -1618,9 +2604,161 @@ public interface UpdateByOperation {
      * @return The aggregation
      */
     static UpdateByOperation RollingCount(String timestampCol, long revTime, long fwdTime, String... pairs) {
-        return RollingCountSpec.ofTime(timestampCol, revTime, fwdTime).clause(pairs);
+        return RollingCountNonNull(timestampCol, revTime, fwdTime, pairs);
     }
 
+    /**
+     * Create a {@link RollingCountSpec rolling count} of all values (including {@code null}) for the supplied column
+     * name pairs, using time as the windowing unit. This function accepts {@code nanoseconds} as the reverse and
+     * forward window parameters. Negative values are allowed and can be used to generate completely forward or
+     * completely reverse windows. A row containing a {@code null} in the timestamp column belongs to no window and will
+     * not have a value computed or be considered in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param fwdTime the look-ahead window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountAll(String timestampCol, long revTime, long fwdTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, fwdTime, AggCountType.ALL).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of non-null values for the supplied column name pairs, using time
+     * as the windowing unit. This function accepts {@code nanoseconds} as the reverse and forward window parameters.
+     * Negative values are allowed and can be used to generate completely forward or completely reverse windows. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param fwdTime the look-ahead window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNonNull(String timestampCol, long revTime, long fwdTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, fwdTime, AggCountType.ALL).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of null values for the supplied column name pairs, using time as
+     * the windowing unit. This function accepts {@code nanoseconds} as the reverse and forward window parameters.
+     * Negative values are allowed and can be used to generate completely forward or completely reverse windows. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param fwdTime the look-ahead window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNull(String timestampCol, long revTime, long fwdTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, fwdTime, AggCountType.NULL).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of negative values for the supplied column name pairs, using time
+     * as the windowing unit. This function accepts {@code nanoseconds} as the reverse and forward window parameters.
+     * Negative values are allowed and can be used to generate completely forward or completely reverse windows. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param fwdTime the look-ahead window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNeg(String timestampCol, long revTime, long fwdTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, fwdTime, AggCountType.NEGATIVE).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of positive values for the supplied column name pairs, using time
+     * as the windowing unit. This function accepts {@code nanoseconds} as the reverse and forward window parameters.
+     * Negative values are allowed and can be used to generate completely forward or completely reverse windows. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param fwdTime the look-ahead window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountPos(String timestampCol, long revTime, long fwdTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, fwdTime, AggCountType.POSITIVE).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of zero values for the supplied column name pairs, using time as
+     * the windowing unit. This function accepts {@code nanoseconds} as the reverse and forward window parameters.
+     * Negative values are allowed and can be used to generate completely forward or completely reverse windows. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param fwdTime the look-ahead window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountZero(String timestampCol, long revTime, long fwdTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, fwdTime, AggCountType.ZERO).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of NaN values for the supplied column name pairs, using time as
+     * the windowing unit. This function accepts {@code nanoseconds} as the reverse and forward window parameters.
+     * Negative values are allowed and can be used to generate completely forward or completely reverse windows. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param fwdTime the look-ahead window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountNaN(String timestampCol, long revTime, long fwdTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, fwdTime, AggCountType.NAN).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of +/- infinite values for the supplied column name pairs, using
+     * time as the windowing unit. This function accepts {@code nanoseconds} as the reverse and forward window
+     * parameters. Negative values are allowed and can be used to generate completely forward or completely reverse
+     * windows. A row containing a {@code null} in the timestamp column belongs to no window and will not have a value
+     * computed or be considered in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param fwdTime the look-ahead window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountInf(String timestampCol, long revTime, long fwdTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, fwdTime, AggCountType.INFINITE).clause(pairs);
+    }
+
+    /**
+     * Create a {@link RollingCountSpec rolling count} of finite values for the supplied column name pairs, using time
+     * as the windowing unit. This function accepts {@code nanoseconds} as the reverse and forward window parameters.
+     * Negative values are allowed and can be used to generate completely forward or completely reverse windows. A row
+     * containing a {@code null} in the timestamp column belongs to no window and will not have a value computed or be
+     * considered in the windows of other rows.
+     *
+     * @param timestampCol the name of the timestamp column
+     * @param revTime the look-behind window size (in nanoseconds)
+     * @param fwdTime the look-ahead window size (in nanoseconds)
+     * @param pairs The input/output column name pairs
+     * @return The aggregation
+     */
+    static UpdateByOperation RollingCountFinite(String timestampCol, long revTime, long fwdTime, String... pairs) {
+        return RollingCountSpec.ofTime(timestampCol, revTime, fwdTime, AggCountType.FINITE).clause(pairs);
+    }
 
     /**
      * Create a {@link RollingStdSpec rolling sample standard deviation} for the supplied column name pairs, using ticks

@@ -561,6 +561,7 @@ message UpdateByRequest {
         message UpdateByRollingCount {
           UpdateByWindowScale reverse_window_scale = 1;
           UpdateByWindowScale forward_window_scale = 2;
+          AggCountType count_type = 3;
         }
 
         message UpdateByRollingStd {
@@ -851,6 +852,19 @@ message AggregateAllRequest {
 
 enum NullValue {
   NULL_VALUE = 0;
+}
+
+enum AggCountType {
+  COUNT_TYPE_NOT_SPECIFIED = 0;
+  COUNT_ALL = 1;
+  COUNT_NON_NULL = 2;
+  COUNT_NULL = 3;
+  COUNT_NEGATIVE = 4;
+  COUNT_POSITIVE = 5;
+  COUNT_ZERO = 6;
+  COUNT_NAN = 7;
+  COUNT_INFINITE = 8;
+  COUNT_FINITE = 9;
 }
 
 message AggSpec {

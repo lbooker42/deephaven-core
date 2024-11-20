@@ -7,6 +7,7 @@
 // @formatter:off
 package io.deephaven.engine.table.impl.updateby.rollingcount;
 
+import io.deephaven.api.agg.util.AggCountType;
 import io.deephaven.base.ringbuffer.ByteRingBuffer;
 import io.deephaven.base.verify.Assert;
 import io.deephaven.chunk.ByteChunk;
@@ -18,13 +19,11 @@ import io.deephaven.engine.table.impl.updateby.internal.BaseLongUpdateByOperator
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import static io.deephaven.util.QueryConstants.NULL_BYTE;
-
 public class ByteRollingCountOperator extends BaseLongUpdateByOperator {
     private static final int BUFFER_INITIAL_CAPACITY = 128;
-    // region extra-fields
-    final byte nullValue;
-    // endregion extra-fields
+
+    private final AggCountType countType;
+    private final AggCountType.ByteCountFunction countFunction;
 
     protected class Context extends BaseLongUpdateByOperator.Context {
         protected ByteChunk<? extends Values> influencerValuesChunk;
@@ -34,6 +33,9 @@ public class ByteRollingCountOperator extends BaseLongUpdateByOperator {
         protected Context(final int affectedChunkSize, final int influencerChunkSize) {
             super(affectedChunkSize);
             buffer = new ByteRingBuffer(BUFFER_INITIAL_CAPACITY, true);
+
+            // curVal assigned to 0 (vs. default of NULL_LONG)
+            curVal = 0;
         }
 
         @Override
@@ -53,12 +55,11 @@ public class ByteRollingCountOperator extends BaseLongUpdateByOperator {
 
             for (int ii = 0; ii < count; ii++) {
                 final byte val = influencerValuesChunk.get(pos + ii);
+                buffer.addUnsafe(val);
 
-                if (val == nullValue) {
-                    buffer.addUnsafe((byte) 0); // 0 signifies null
-                    nullCount++;
-                } else {
-                    buffer.addUnsafe((byte) 1); // 1 signifies non-null
+                // Run the count function on the value and increment the count when appropriate
+                if (countFunction.count(val)) {
+                    curVal++;
                 }
             }
         }
@@ -70,22 +71,18 @@ public class ByteRollingCountOperator extends BaseLongUpdateByOperator {
             for (int ii = 0; ii < count; ii++) {
                 final byte val = buffer.removeUnsafe();
 
-                if (val == 0) {
-                    nullCount--;
+                // Run the count function on the value and increment the count when appropriate
+                if (countFunction.count(val)) {
+                    curVal--;
                 }
             }
-        }
-
-        @Override
-        public void writeToOutputChunk(int outIdx) {
-            curVal = buffer.size() - nullCount;
-            outputValues.set(outIdx, curVal);
         }
 
         @Override
         public void reset() {
             super.reset();
             buffer.clear();
+            curVal = 0;
         }
     }
 
@@ -100,15 +97,11 @@ public class ByteRollingCountOperator extends BaseLongUpdateByOperator {
             @NotNull final String[] affectingColumns,
             @Nullable final String timestampColumnName,
             final long reverseWindowScaleUnits,
-            final long forwardWindowScaleUnits
-    // region extra-constructor-args
-            ,final byte nullValue
-    // endregion extra-constructor-args
-    ) {
+            final long forwardWindowScaleUnits,
+            AggCountType countType) {
         super(pair, affectingColumns, timestampColumnName, reverseWindowScaleUnits, forwardWindowScaleUnits, true);
-        // region constructor
-        this.nullValue = nullValue;
-        // endregion constructor
+        this.countType = countType;
+        countFunction = AggCountType.getByteCountFunction(countType);
     }
 
     @Override
@@ -117,10 +110,7 @@ public class ByteRollingCountOperator extends BaseLongUpdateByOperator {
                 affectingColumns,
                 timestampColumnName,
                 reverseWindowScaleUnits,
-                forwardWindowScaleUnits
-        // region extra-copy-args
-                , nullValue
-        // endregion extra-copy-args
-        );
+                forwardWindowScaleUnits,
+                countType);
     }
 }

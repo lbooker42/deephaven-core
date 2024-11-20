@@ -5,6 +5,7 @@ package io.deephaven.engine.table.impl.updateby;
 
 import io.deephaven.api.Pair;
 import io.deephaven.api.Selectable;
+import io.deephaven.api.agg.util.AggCountType;
 import io.deephaven.api.updateby.ColumnUpdateOperation;
 import io.deephaven.api.updateby.OperationControl;
 import io.deephaven.api.updateby.UpdateByControl;
@@ -1188,8 +1189,6 @@ public class UpdateByOperatorFactory {
         private UpdateByOperator makeRollingCountOperator(@NotNull final MatchPair pair,
                 @NotNull final TableDefinition tableDef,
                 @NotNull final RollingCountSpec rs) {
-            final ColumnDefinition<?> columnDef = tableDef.getColumn(pair.rightColumn);
-            final Class<?> csType = columnDef.getDataType();
 
             final String[] affectingColumns;
             if (rs.revWindowScale().timestampCol() == null) {
@@ -1201,43 +1200,59 @@ public class UpdateByOperatorFactory {
             final long prevWindowScaleUnits = rs.revWindowScale().getTimeScaleUnits();
             final long fwdWindowScaleUnits = rs.fwdWindowScale().getTimeScaleUnits();
 
+            // For counting all rows we have a special, high performance operator
+            if (rs.countType() == AggCountType.ALL) {
+                return new RollingCountAllOperator(rs.revWindowScale().timestampCol(), prevWindowScaleUnits,
+                        fwdWindowScaleUnits);
+            }
+
+            final ColumnDefinition<?> columnDef = tableDef.getColumn(pair.rightColumn);
+            final Class<?> csType = columnDef.getDataType();
+
             if (csType == boolean.class || csType == Boolean.class) {
                 return new ByteRollingCountOperator(pair, affectingColumns,
                         rs.revWindowScale().timestampCol(),
-                        prevWindowScaleUnits, fwdWindowScaleUnits, NULL_BOOLEAN_AS_BYTE);
+                        prevWindowScaleUnits, fwdWindowScaleUnits, rs.countType());
             } else if (csType == byte.class || csType == Byte.class) {
                 return new ByteRollingCountOperator(pair, affectingColumns,
                         rs.revWindowScale().timestampCol(),
-                        prevWindowScaleUnits, fwdWindowScaleUnits, NULL_BYTE);
+                        prevWindowScaleUnits, fwdWindowScaleUnits, rs.countType());
             } else if (csType == char.class || csType == Character.class) {
                 return new CharRollingCountOperator(pair, affectingColumns,
                         rs.revWindowScale().timestampCol(),
-                        prevWindowScaleUnits, fwdWindowScaleUnits);
+                        prevWindowScaleUnits, fwdWindowScaleUnits, rs.countType());
             } else if (csType == short.class || csType == Short.class) {
                 return new ShortRollingCountOperator(pair, affectingColumns,
                         rs.revWindowScale().timestampCol(),
-                        prevWindowScaleUnits, fwdWindowScaleUnits);
+                        prevWindowScaleUnits, fwdWindowScaleUnits, rs.countType());
             } else if (csType == int.class || csType == Integer.class) {
                 return new IntRollingCountOperator(pair, affectingColumns,
                         rs.revWindowScale().timestampCol(),
-                        prevWindowScaleUnits, fwdWindowScaleUnits);
+                        prevWindowScaleUnits, fwdWindowScaleUnits, rs.countType());
             } else if (csType == long.class || csType == Long.class) {
                 return new LongRollingCountOperator(pair, affectingColumns,
                         rs.revWindowScale().timestampCol(),
-                        prevWindowScaleUnits, fwdWindowScaleUnits);
+                        prevWindowScaleUnits, fwdWindowScaleUnits, rs.countType());
             } else if (csType == float.class || csType == Float.class) {
                 return new FloatRollingCountOperator(pair, affectingColumns,
                         rs.revWindowScale().timestampCol(),
-                        prevWindowScaleUnits, fwdWindowScaleUnits);
+                        prevWindowScaleUnits, fwdWindowScaleUnits, rs.countType());
             } else if (csType == double.class || csType == Double.class) {
                 return new DoubleRollingCountOperator(pair, affectingColumns,
                         rs.revWindowScale().timestampCol(),
-                        prevWindowScaleUnits, fwdWindowScaleUnits);
-            } else {
-                return new ObjectRollingCountOperator(pair, affectingColumns,
+                        prevWindowScaleUnits, fwdWindowScaleUnits, rs.countType());
+            } else if (csType == BigDecimal.class) {
+                return new BigDecimalRollingCountOperator(pair, affectingColumns,
                         rs.revWindowScale().timestampCol(),
-                        prevWindowScaleUnits, fwdWindowScaleUnits);
+                        prevWindowScaleUnits, fwdWindowScaleUnits, rs.countType());
+            } else if (csType == BigInteger.class) {
+                return new BigIntegerRollingCountOperator(pair, affectingColumns,
+                        rs.revWindowScale().timestampCol(),
+                        prevWindowScaleUnits, fwdWindowScaleUnits, rs.countType());
             }
+            return new ObjectRollingCountOperator(pair, affectingColumns,
+                    rs.revWindowScale().timestampCol(),
+                    prevWindowScaleUnits, fwdWindowScaleUnits, rs.countType());
         }
 
         private UpdateByOperator makeRollingStdOperator(@NotNull final MatchPair pair,

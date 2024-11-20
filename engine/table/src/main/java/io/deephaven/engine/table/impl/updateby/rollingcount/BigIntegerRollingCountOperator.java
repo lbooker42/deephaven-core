@@ -15,15 +15,17 @@ import io.deephaven.engine.table.impl.updateby.internal.BaseLongUpdateByOperator
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class ObjectRollingCountOperator extends BaseLongUpdateByOperator {
+import java.math.BigInteger;
+
+public class BigIntegerRollingCountOperator extends BaseLongUpdateByOperator {
     private static final int BUFFER_INITIAL_CAPACITY = 128;
 
     private final AggCountType countType;
-    private final AggCountType.ObjectCountFunction countFunction;
+    private final AggCountType.BigIntegerCountFunction countFunction;
 
     protected class Context extends BaseLongUpdateByOperator.Context {
-        protected ObjectChunk<Object, ? extends Values> influencerValuesChunk;
-        protected ObjectRingBuffer<Object> buffer;
+        protected ObjectChunk<BigInteger, ? extends Values> influencerValuesChunk;
+        protected ObjectRingBuffer<BigInteger> buffer;
 
         @SuppressWarnings("unused")
         protected Context(final int affectedChunkSize, final int influencerChunkSize) {
@@ -50,7 +52,7 @@ public class ObjectRollingCountOperator extends BaseLongUpdateByOperator {
             buffer.ensureRemaining(count);
 
             for (int ii = 0; ii < count; ii++) {
-                final Object val = influencerValuesChunk.get(pos + ii);
+                final BigInteger val = influencerValuesChunk.get(pos + ii);
                 buffer.addUnsafe(val);
 
                 // Run the count function on the value and increment the count when appropriate
@@ -65,7 +67,7 @@ public class ObjectRollingCountOperator extends BaseLongUpdateByOperator {
             Assert.geq(buffer.size(), "charWindowValues.size()", count);
 
             for (int ii = 0; ii < count; ii++) {
-                final Object val = buffer.removeUnsafe();
+                final BigInteger val = buffer.removeUnsafe();
 
                 // Run the count function on the value and increment the count when appropriate
                 if (countFunction.count(val)) {
@@ -88,7 +90,7 @@ public class ObjectRollingCountOperator extends BaseLongUpdateByOperator {
         return new Context(affectedChunkSize, influencerChunkSize);
     }
 
-    public ObjectRollingCountOperator(
+    public BigIntegerRollingCountOperator(
             @NotNull final MatchPair pair,
             @NotNull final String[] affectingColumns,
             @Nullable final String timestampColumnName,
@@ -97,12 +99,12 @@ public class ObjectRollingCountOperator extends BaseLongUpdateByOperator {
             final AggCountType countType) {
         super(pair, affectingColumns, timestampColumnName, reverseWindowScaleUnits, forwardWindowScaleUnits, true);
         this.countType = countType;
-        countFunction = AggCountType.getObjectCountFunction(countType);
+        countFunction = AggCountType.getBigIntegerCountFunction(countType);
     }
 
     @Override
     public UpdateByOperator copy() {
-        return new ObjectRollingCountOperator(
+        return new BigIntegerRollingCountOperator(
                 pair,
                 affectingColumns,
                 timestampColumnName,

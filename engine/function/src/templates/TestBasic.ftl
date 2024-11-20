@@ -619,6 +619,48 @@ public class TestBasic extends BaseArrayTestCase {
         assertEquals(2,count(new ${pt.vectorDirect}(new ${pt.primitive}[]{5, ${pt.null},15})));
     }
 
+    public void test${pt.boxed}CountAll(){
+        assertEquals(NULL_LONG,countAll((${pt.primitive}[])null));
+        assertEquals(3,countAll(new ${pt.primitive}[]{40,50,60}));
+        assertEquals(0,countAll(new ${pt.primitive}[]{}));
+        assertEquals(1,countAll(${pt.null}));
+        assertEquals(3,countAll(new ${pt.primitive}[]{5, ${pt.null},15}));
+
+        assertEquals(NULL_LONG,countAll((${pt.vector})null));
+        assertEquals(3,countAll(new ${pt.vectorDirect}(new ${pt.primitive}[]{40,50,60})));
+        assertEquals(0,countAll(new ${pt.vectorDirect}()));
+        assertEquals(1,countAll(new ${pt.vectorDirect}(${pt.null})));
+        assertEquals(3,countAll(new ${pt.vectorDirect}(new ${pt.primitive}[]{5, ${pt.null},15})));
+    }
+
+    public void test${pt.boxed}CountNonNull(){
+        assertEquals(NULL_LONG,countNonNull((${pt.primitive}[])null));
+        assertEquals(3,countNonNull(new ${pt.primitive}[]{40,50,60}));
+        assertEquals(0,countNonNull(new ${pt.primitive}[]{}));
+        assertEquals(0,countNonNull(${pt.null}));
+        assertEquals(2,countNonNull(new ${pt.primitive}[]{5, ${pt.null},15}));
+
+        assertEquals(NULL_LONG,countNonNull((${pt.vector})null));
+        assertEquals(3,countNonNull(new ${pt.vectorDirect}(new ${pt.primitive}[]{40,50,60})));
+        assertEquals(0,countNonNull(new ${pt.vectorDirect}()));
+        assertEquals(0,countNonNull(new ${pt.vectorDirect}(${pt.null})));
+        assertEquals(2,countNonNull(new ${pt.vectorDirect}(new ${pt.primitive}[]{5, ${pt.null},15})));
+    }
+
+    public void test${pt.boxed}CountNull(){
+        assertEquals(NULL_LONG,countNull((${pt.primitive}[])null));
+        assertEquals(0,countNull(new ${pt.primitive}[]{40,50,60}));
+        assertEquals(0,countNull(new ${pt.primitive}[]{}));
+        assertEquals(1,countNull(${pt.null}));
+        assertEquals(1,countNull(new ${pt.primitive}[]{5, ${pt.null},15}));
+
+        assertEquals(NULL_LONG,countNull((${pt.vector})null));
+        assertEquals(0,countNull(new ${pt.vectorDirect}(new ${pt.primitive}[]{40,50,60})));
+        assertEquals(0,countNull(new ${pt.vectorDirect}()));
+        assertEquals(1,countNull(new ${pt.vectorDirect}(${pt.null})));
+        assertEquals(1,countNull(new ${pt.vectorDirect}(new ${pt.primitive}[]{5, ${pt.null},15})));
+    }
+
     public void test${pt.boxed}Last(){
         assertTrue(Math.abs(60-last(new ${pt.vectorDirect}(new ${pt.primitive}[]{40,50,60})))==0.0);
         assertEquals(${pt.null},last((${pt.vector})null));

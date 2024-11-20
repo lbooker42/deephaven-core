@@ -1032,11 +1032,8 @@ public class Basic {
      * @return number of non-null values.
      */
     static public long count(${pt.primitive}... values) {
-        if (values == null) {
-            return NULL_LONG;
-        }
-
-        return count(new ${pt.vectorDirect}(values));
+        // delegate to countNonNull()
+        return countNonNull(values);
     }
 
     /**
@@ -1046,6 +1043,53 @@ public class Basic {
      * @return number of non-null values.
      */
     static public long count(${pt.vector} values) {
+        // delegate to countNonNull()
+        return countNonNull(values);
+    }
+
+    /**
+     * Counts the number of all values (including null).
+     *
+     * @param values values.
+     * @return number of values.
+     */
+    static public long countAll(${pt.primitive}... values) {
+        // delegate to len()
+        return len(values);
+    }
+
+    /**
+     * Counts the number of all values (including null).
+     *
+     * @param values values.
+     * @return number of values.
+     */
+    static public long countAll(${pt.vector} values) {
+        // delegate to len()
+        return len(values);
+    }
+
+    /**
+     * Counts the number of non-null values.
+     *
+     * @param values values.
+     * @return number of non-null values.
+     */
+    static public long countNonNull(${pt.primitive}... values) {
+        if (values == null) {
+            return NULL_LONG;
+        }
+
+        return countNonNull(new ${pt.vectorDirect}(values));
+    }
+
+    /**
+     * Counts the number of non-null values.
+     *
+     * @param values values.
+     * @return number of non-null values.
+     */
+    static public long countNonNull(${pt.vector} values) {
         if (values == null) {
             return NULL_LONG;
         }
@@ -1056,6 +1100,45 @@ public class Basic {
             while ( vi.hasNext() ) {
                 final ${pt.primitive} v = vi.${pt.iteratorNext}();
                 if (!isNull(v)) {
+                    count++;
+                }
+            }
+        }
+
+        return count;
+    }
+
+    /**
+     * Counts the number of null values.
+     *
+     * @param values values.
+     * @return number of null values.
+     */
+    static public long countNull(${pt.primitive}... values) {
+        if (values == null) {
+            return NULL_LONG;
+        }
+
+        return countNull(new ${pt.vectorDirect}(values));
+    }
+
+    /**
+     * Counts the number of null values.
+     *
+     * @param values values.
+     * @return number of null values.
+     */
+    static public long countNull(${pt.vector} values) {
+        if (values == null) {
+            return NULL_LONG;
+        }
+
+        long count = 0;
+
+        try (final ${pt.vectorIterator} vi = values.iterator()) {
+            while ( vi.hasNext() ) {
+                final ${pt.primitive} v = vi.${pt.iteratorNext}();
+                if (isNull(v)) {
                     count++;
                 }
             }

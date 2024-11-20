@@ -169,7 +169,7 @@ public abstract class BaseLongUpdateByOperator extends UpdateByOperator {
      *        provided, this is measured in ticks, otherwise it is measured in nanoseconds.
      */
     public BaseLongUpdateByOperator(
-            @NotNull final MatchPair pair,
+            @Nullable final MatchPair pair,
             @NotNull final String[] affectingColumns,
             @Nullable final String timestampColumnName,
             final long reverseWindowScaleUnits,

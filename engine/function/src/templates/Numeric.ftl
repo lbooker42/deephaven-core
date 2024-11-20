@@ -339,6 +339,153 @@ public class Numeric {
 
         return count;
     }
+    
+    /**
+     * Counts the number of NaN values.
+     *
+     * @param values values.
+     * @return number of NaN values.
+     */
+    public static long countNaN(${pt.boxed}[] values) {
+        return countNaN(unbox(values));
+    }
+
+    /**
+     * Counts the number of NaN values.
+     *
+     * @param values values.
+     * @return number of NaN values.
+     */
+    public static long countNaN(${pt.primitive}... values) {
+        if (values == null) {
+            return NULL_LONG;
+        }
+
+        return countNaN(new ${pt.vectorDirect}(values));
+    }
+
+    /**
+     * Counts the number of NaN values.
+     *
+     * @param values values.
+     * @return number of NaN values.
+     */
+    public static long countNaN(${pt.vector} values) {
+        if (values == null) {
+            return NULL_LONG;
+        }
+
+        long count = 0;
+
+        try ( final ${pt.vectorIterator} vi = values.iterator() ) {
+            while ( vi.hasNext() ) {
+                final ${pt.primitive} c = vi.${pt.iteratorNext}();
+                if (isNaN(c)) {
+                    count++;
+                }
+            }
+        }
+
+        return count;
+    }
+    
+    /**
+     * Counts the number of +/- infinite values.
+     *
+     * @param values values.
+     * @return number of infinite values.
+     */
+    public static long countInf(${pt.boxed}[] values) {
+        return countInf(unbox(values));
+    }
+
+    /**
+     * Counts the number of +/- infinite values.
+     *
+     * @param values values.
+     * @return number of infinite values.
+     */
+    public static long countInf(${pt.primitive}... values) {
+        if (values == null) {
+            return NULL_LONG;
+        }
+
+        return countInf(new ${pt.vectorDirect}(values));
+    }
+
+    /**
+     * Counts the number of +/- infinite values.
+     *
+     * @param values values.
+     * @return number of infinite values.
+     */
+    public static long countInf(${pt.vector} values) {
+        if (values == null) {
+            return NULL_LONG;
+        }
+
+        long count = 0;
+
+        try ( final ${pt.vectorIterator} vi = values.iterator() ) {
+            while ( vi.hasNext() ) {
+                final ${pt.primitive} c = vi.${pt.iteratorNext}();
+                if (isInf(c)) {
+                    count++;
+                }
+            }
+        }
+
+        return count;
+    }
+
+    /**
+     * Counts the number of finite values.
+     *
+     * @param values values.
+     * @return number of finite values.
+     */
+    public static long countFinite(${pt.boxed}[] values) {
+        return countFinite(unbox(values));
+    }
+
+    /**
+     * Counts the number of finite values.
+     *
+     * @param values values.
+     * @return number of finite values.
+     */
+    public static long countFinite(${pt.primitive}... values) {
+        if (values == null) {
+            return NULL_LONG;
+        }
+
+        return countFinite(new ${pt.vectorDirect}(values));
+    }
+
+    /**
+     * Counts the number of finite values.
+     *
+     * @param values values.
+     * @return number of finite values.
+     */
+    public static long countFinite(${pt.vector} values) {
+        if (values == null) {
+            return NULL_LONG;
+        }
+
+        long count = 0;
+
+        try ( final ${pt.vectorIterator} vi = values.iterator() ) {
+            while ( vi.hasNext() ) {
+                final ${pt.primitive} c = vi.${pt.iteratorNext}();
+                if (isFinite(c)) {
+                    count++;
+                }
+            }
+        }
+
+        return count;
+    }
 
     /**
      * Returns the mean.  Null values are excluded.

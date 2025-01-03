@@ -756,6 +756,7 @@ public class RegionedColumnSourceManager implements ColumnSourceManager, Delegat
         }
     }
 
+    @Override
     public Map<String, Object> getTableAttributes(
             @NotNull TableUpdateMode tableUpdateMode,
             @NotNull TableUpdateMode tableLocationUpdateMode) {
@@ -775,5 +776,10 @@ public class RegionedColumnSourceManager implements ColumnSourceManager, Delegat
             attributes.put(Table.ADD_ONLY_TABLE_ATTRIBUTE, Boolean.TRUE);
         }
         return attributes;
+    }
+
+    @Override
+    public void manageRetainedDataIndexes(final LivenessManager parent) {
+        retainedDataIndexes.forEach(parent::manage);
     }
 }

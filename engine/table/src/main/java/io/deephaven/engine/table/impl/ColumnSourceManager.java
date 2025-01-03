@@ -3,6 +3,7 @@
 //
 package io.deephaven.engine.table.impl;
 
+import io.deephaven.engine.liveness.LivenessManager;
 import io.deephaven.engine.liveness.LivenessNode;
 import io.deephaven.engine.rowset.RowSet;
 import io.deephaven.engine.rowset.TrackingWritableRowSet;
@@ -126,4 +127,11 @@ public interface ColumnSourceManager extends LivenessNode {
     Map<String, Object> getTableAttributes(
             @NotNull TableUpdateMode tableUpdateMode,
             @NotNull TableUpdateMode tableLocationUpdateMode);
+
+    /**
+     * Explicitly manage the data indexes retained by this ColumnSourceManager.
+     *
+     * @param parent The parent {@link LivenessManager} that will hold the references.
+     */
+    void manageRetainedDataIndexes(final LivenessManager parent);
 }

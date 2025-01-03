@@ -55,6 +55,11 @@ public abstract class SourceTable<IMPL_TYPE extends SourceTable<IMPL_TYPE>> exte
     final UpdateSourceRegistrar updateSourceRegistrar;
 
     /**
+     * Whether this table is refreshing (or static).
+     */
+    final boolean isRefreshing;
+
+    /**
      * Whether we've done our initial location fetch.
      */
     private volatile boolean locationsInitialized;
@@ -73,6 +78,11 @@ public abstract class SourceTable<IMPL_TYPE extends SourceTable<IMPL_TYPE>> exte
      * The update source object for refreshing locations and location sizes.
      */
     private LocationChangePoller locationChangePoller;
+
+    /**
+     * Whether initialization is complete for this table.
+     */
+    private boolean initialized;
 
     /**
      * Construct a new disk-backed table.
@@ -95,7 +105,7 @@ public abstract class SourceTable<IMPL_TYPE extends SourceTable<IMPL_TYPE>> exte
         this.locationProvider = Require.neqNull(locationProvider, "locationProvider");
         this.updateSourceRegistrar = updateSourceRegistrar;
 
-        final boolean isRefreshing = updateSourceRegistrar != null;
+        isRefreshing = updateSourceRegistrar != null;
         try (final SafeCloseable ignored = isRefreshing ? LivenessScopeStack.open() : null) {
             columnSourceManager = componentFactory.createColumnSourceManager(
                     isRefreshing,
@@ -104,6 +114,9 @@ public abstract class SourceTable<IMPL_TYPE extends SourceTable<IMPL_TYPE>> exte
             );
             if (isRefreshing) {
                 manage(columnSourceManager);
+            } else {
+                // Even though we are static, we want to manage our data indexes so they aren't dropped.
+                columnSourceManager.manageRetainedDataIndexes(this);
             }
         }
 
@@ -120,6 +133,11 @@ public abstract class SourceTable<IMPL_TYPE extends SourceTable<IMPL_TYPE>> exte
     protected final void initialize() {
         initializeAvailableLocations();
         initializeLocationSizes();
+        if (!isRefreshing && !initialized) {
+            // Even though we are static, we want to manage our data indexes so they aren't dropped.
+            columnSourceManager.manageRetainedDataIndexes(this);
+        }
+        initialized = true;
     }
 
     @TestUseOnly

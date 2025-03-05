@@ -15,11 +15,11 @@ import io.deephaven.engine.testutil.ControlledUpdateGraph;
 import io.deephaven.engine.testutil.EvalNugget;
 import io.deephaven.engine.testutil.EvalNuggetInterface;
 import io.deephaven.engine.testutil.TstUtils;
-import io.deephaven.engine.testutil.generator.CharGenerator;
-import io.deephaven.engine.testutil.generator.TestDataGenerator;
+import io.deephaven.engine.testutil.generator.*;
 import io.deephaven.engine.util.TableTools;
 import io.deephaven.function.Basic;
 import io.deephaven.test.types.OutOfBandTest;
+import io.deephaven.time.DateTimeUtils;
 import io.deephaven.util.function.ThrowingRunnable;
 import org.jetbrains.annotations.NotNull;
 import org.junit.Test;
@@ -44,12 +44,24 @@ public class TestForwardFill extends BaseUpdateByTest {
     // region Zero Key Tests
     @Test
     public void testStaticZeroKey() {
-        final QueryTable t = createTestTable(100000, true, false, false, 0x507A70,
-                new String[] {"charCol"}, new TestDataGenerator[] {new CharGenerator('A', 'Z', .1)}).t;
+        // Test with varying null fractions
+        final double[] nullFracs = new double[] {0.0, 0.1, 0.5, 0.9, 0.99, 1.0};
+        for (final double nullFrac : nullFracs) {
+            final String[] columns = new String[] {"charCol", "stringCol", "instantCol"};
+            final TestDataGenerator[] generators = new TestDataGenerator[] {
+                    new CharGenerator('A', 'Z', nullFrac),
+                    new StringGenerator(1_000, nullFrac),
+                    new UnsortedInstantGenerator(
+                            DateTimeUtils.parseInstant("2022-03-09T09:00:00.000 NY"),
+                            DateTimeUtils.parseInstant("2022-03-09T16:30:00.000 NY"), nullFrac)
+            };
+            final QueryTable t = createTestTable(100000, true, false, false, 0x507A70,
+                    columns, generators, nullFrac).t;
 
-        final Table filled = t.updateBy(UpdateByOperation.Fill());
-        for (String col : t.getDefinition().getColumnNamesArray()) {
-            assertWithForwardFill(ColumnVectors.of(t, col).toArray(), ColumnVectors.of(filled, col).toArray());
+            final Table filled = t.updateBy(UpdateByOperation.Fill());
+            for (String col : t.getDefinition().getColumnNamesArray()) {
+                assertWithForwardFill(ColumnVectors.of(t, col).toArray(), ColumnVectors.of(filled, col).toArray());
+            }
         }
     }
 

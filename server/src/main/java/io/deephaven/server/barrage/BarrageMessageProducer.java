@@ -7,6 +7,8 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.rpc.Code;
 import io.deephaven.base.formatters.FormatBitSet;
 import io.deephaven.base.verify.Assert;
+import gnu.trove.list.array.TLongArrayList;
+import io.deephaven.base.Pair;
 import io.deephaven.chunk.Chunk;
 import io.deephaven.chunk.WritableChunk;
 import io.deephaven.chunk.attributes.Values;
@@ -224,6 +226,7 @@ public class BarrageMessageProducer extends LivenessArtifact
      */
     private final long[] deltaColumnOffsets;
     private final ArrayList<WritableChunk<Values>>[] deltaColumns;
+    private final TLongArrayList[] deltaChunkOffsets;
 
     /**
      * This is the last step on which the UG-synced RowSet was updated. This is used only for consistency checking
@@ -332,6 +335,7 @@ public class BarrageMessageProducer extends LivenessArtifact
         // noinspection unchecked
         deltaColumns = new ArrayList[sources.length];
         deltaColumnOffsets = new long[sources.length];
+        deltaChunkOffsets = new TLongArrayList[sources.length];
         realColumnType = new Class<?>[sources.length];
         realColumnComponentType = new Class<?>[sources.length];
 
@@ -363,6 +367,7 @@ public class BarrageMessageProducer extends LivenessArtifact
                 chunkSources[ci] = sources[ci];
             }
             deltaColumns[ci] = new ArrayList<>();
+            deltaChunkOffsets[ci] = new TLongArrayList();
         }
     }
 
@@ -905,31 +910,40 @@ public class BarrageMessageProducer extends LivenessArtifact
                 final int deltaChunkSize =
                         (int) Math.min(DELTA_CHUNK_SIZE, Math.max(addsToRecord.size(), modsToRecord.size()));
 
-                // create get contexts for each active column
-                final ChunkSource.GetContext[] getContexts = new ChunkSource.GetContext[chunkSources.length];
-                try (final SafeCloseableArray<?> ignored = new SafeCloseableArray<>(getContexts)) {
+                // create fill contexts for each active column
+                final ChunkSource.FillContext[] fillContexts = new ChunkSource.FillContext[chunkSources.length];
+                try (final SafeCloseableArray<?> ignored = new SafeCloseableArray<>(fillContexts)) {
                     for (int columnIndex = activeColumns.nextSetBit(0); columnIndex >= 0; columnIndex =
                             activeColumns.nextSetBit(columnIndex + 1)) {
                         if (addsToRecord.isEmpty() && !modifiedColumns.get(columnIndex)) {
                             continue;
                         }
-                        getContexts[columnIndex] =
-                                chunkSources[columnIndex].makeGetContext(deltaChunkSize, sharedContext);
+                        fillContexts[columnIndex] =
+                                chunkSources[columnIndex].makeFillContext(deltaChunkSize, sharedContext);
                     }
 
                     final BiConsumer<RowSet, BitSet> recordRows = (keysToAdd, columnsToRecord) -> {
                         try (final RowSequence.Iterator rsIt = keysToAdd.getRowSequenceIterator()) {
                             while (rsIt.hasMore()) {
                                 final RowSequence srcKeys = rsIt.getNextRowSequenceWithLength(deltaChunkSize);
+                                final int batchSize = srcKeys.intSize();
 
                                 for (int columnIndex = columnsToRecord.nextSetBit(0); columnIndex >= 0; columnIndex =
                                         columnsToRecord.nextSetBit(columnIndex + 1)) {
-                                    if (getContexts[columnIndex] == null) {
+                                    if (fillContexts[columnIndex] == null) {
                                         continue;
                                     }
-                                    final Chunk<? extends Values> valuesChunk =
-                                            chunkSources[columnIndex].getChunk(getContexts[columnIndex], srcKeys);
-                                    appendToDeltaColumn(columnIndex, valuesChunk);
+                                    final WritableChunk<Values> destChunk =
+                                            chunkSources[columnIndex].getChunkType().makeWritableChunk(batchSize);
+                                    chunkSources[columnIndex].fillChunk(
+                                            fillContexts[columnIndex], destChunk, srcKeys);
+                                    deltaColumns[columnIndex].add(destChunk);
+                                    deltaColumnOffsets[columnIndex] += batchSize;
+
+                                    // Accumulate the cumulative offset for this new chunk.
+                                    final TLongArrayList cumSizes = deltaChunkOffsets[columnIndex];
+                                    final long prev = cumSizes.isEmpty() ? 0 : cumSizes.get(cumSizes.size() - 1);
+                                    cumSizes.add(prev + batchSize);
                                 }
 
                                 sharedContext.reset();
@@ -1433,11 +1447,12 @@ public class BarrageMessageProducer extends LivenessArtifact
             }
 
             // cleanup for next iteration: close all chunks and clear the delta column lists
-            for (final ArrayList<WritableChunk<Values>> deltaColumn : deltaColumns) {
-                for (final WritableChunk<Values> chunk : deltaColumn) {
+            for (int ci = 0; ci < deltaColumns.length; ci++) {
+                for (final WritableChunk<Values> chunk : deltaColumns[ci]) {
                     chunk.close();
                 }
-                deltaColumn.clear();
+                deltaColumns[ci].clear();
+                deltaChunkOffsets[ci].clear();
             }
 
             Arrays.fill(deltaColumnOffsets, 0);
@@ -1719,7 +1734,8 @@ public class BarrageMessageProducer extends LivenessArtifact
                     while (addRemaining > 0) {
                         final int chunkSize = (int) Math.min(SNAPSHOT_CHUNK_SIZE, addRemaining);
                         final WritableChunk<Values> addChunk = adds.chunkType.makeWritableChunk(chunkSize);
-                        extractRange(deltaColumns[ci], firstDelta.columnOffsets[ci] + addOffset, chunkSize, addChunk);
+                        extractRange(deltaColumns[ci], deltaChunkOffsets[ci], firstDelta.columnOffsets[ci] + addOffset,
+                                chunkSize, addChunk);
                         adds.data.add(addChunk);
                         addOffset += chunkSize;
                         addRemaining -= chunkSize;
@@ -1744,7 +1760,8 @@ public class BarrageMessageProducer extends LivenessArtifact
                     while (modRemaining > 0) {
                         final int chunkSize = (int) Math.min(SNAPSHOT_CHUNK_SIZE, modRemaining);
                         final WritableChunk<Values> modChunk = mods.chunkType.makeWritableChunk(chunkSize);
-                        extractRange(deltaColumns[ci], modBaseStart + modOffset, chunkSize, modChunk);
+                        extractRange(deltaColumns[ci], deltaChunkOffsets[ci], modBaseStart + modOffset, chunkSize,
+                                modChunk);
                         mods.data.add(modChunk);
                         modOffset += chunkSize;
                         modRemaining -= chunkSize;
@@ -1806,7 +1823,7 @@ public class BarrageMessageProducer extends LivenessArtifact
                 long[][] modifiedMappings;
             }
 
-            final HashMap<Map.Entry<BitSet, Long>, ColumnInfo> infoCache = new HashMap<>();
+            final HashMap<Pair<BitSet, Long>, ColumnInfo> infoCache = new HashMap<>();
             final IntFunction<ColumnInfo> getColumnInfo = (columnIndex) -> {
                 final BitSet deltasThatModifyThisColumn = new BitSet();
                 for (int i = startDelta; i < endDelta; ++i) {
@@ -1819,7 +1836,7 @@ public class BarrageMessageProducer extends LivenessArtifact
                 // accumulated offsets (from modifications in earlier deltas) produce different
                 // absolute positions in the mapping arrays.
                 final long startingOffset = pendingDeltas.get(startDelta).columnOffsets[columnIndex];
-                final Map.Entry<BitSet, Long> cacheKey = Map.entry(deltasThatModifyThisColumn, startingOffset);
+                final Pair<BitSet, Long> cacheKey = new Pair<>(deltasThatModifyThisColumn, startingOffset);
                 final ColumnInfo ci = infoCache.get(cacheKey);
                 if (ci != null) {
                     return ci;
@@ -1928,7 +1945,7 @@ public class BarrageMessageProducer extends LivenessArtifact
                     final ColumnInfo info = getColumnInfo.apply(ci);
                     for (long[] addedMapping : info.addedMappings) {
                         final WritableChunk<Values> addChunk = adds.chunkType.makeWritableChunk(addedMapping.length);
-                        extractUnordered(deltaColumns[ci], addedMapping, addChunk);
+                        extractUnordered(deltaColumns[ci], deltaChunkOffsets[ci], addedMapping, addChunk);
                         adds.data.add(addChunk);
                     }
                 }
@@ -1950,7 +1967,7 @@ public class BarrageMessageProducer extends LivenessArtifact
                     mods.rowsModified = info.recordedMods.copy();
                     for (long[] modifiedMapping : info.modifiedMappings) {
                         final WritableChunk<Values> modChunk = mods.chunkType.makeWritableChunk(modifiedMapping.length);
-                        extractUnordered(deltaColumns[ci], modifiedMapping, modChunk);
+                        extractUnordered(deltaColumns[ci], deltaChunkOffsets[ci], modifiedMapping, modChunk);
                         mods.data.add(modChunk);
                     }
                 } else {
@@ -2001,19 +2018,48 @@ public class BarrageMessageProducer extends LivenessArtifact
     }
 
     /**
-     * Extract a contiguous range of rows from the flat chunk list into the destination chunk.
+     * Find the chunk index containing the given flat position (computed across all chunks) using bounded binary search.
+     *
+     * @param chunkOffsets the cumulative sizes of the chunks
+     * @param pos the flat position to find
+     * @param fromIndex the starting index for search (inclusive)
+     * @param toIndex the ending index for search (exclusive)
+     * @return the chunk index containing the position
+     */
+    private static int findChunkIdx(
+            final TLongArrayList chunkOffsets,
+            final long pos,
+            final int fromIndex,
+            final int toIndex) {
+        int chunkIdx = chunkOffsets.binarySearch(pos, fromIndex, toIndex);
+        if (chunkIdx < 0) {
+            chunkIdx = -(chunkIdx + 1);
+        } else {
+            // Exact match means pos equals the cumulative end of this chunk; value is in the next chunk.
+            chunkIdx++;
+        }
+        return chunkIdx;
+    }
+
+    /**
+     * Extract a contiguous range of rows from the flat chunk list into the destination chunk. Uses the provided offset
+     * array and binary search to locate the starting chunk.
      */
     private static void extractRange(
             final ArrayList<WritableChunk<Values>> srcChunks,
+            final TLongArrayList chunkOffsets,
             final long startRow,
             final long numRows,
             final WritableChunk<Values> destChunk) {
         if (numRows == 0) {
             return;
         }
+
+        int chunkIdx = findChunkIdx(chunkOffsets, startRow, 0, chunkOffsets.size());
+        final long chunkStart = chunkIdx > 0 ? chunkOffsets.get(chunkIdx - 1) : 0;
+        int srcOffset = Math.toIntExact(startRow - chunkStart);
+
         long remaining = numRows;
-        int chunkIdx = Math.toIntExact(startRow / DELTA_CHUNK_SIZE);
-        int srcOffset = Math.toIntExact(startRow % DELTA_CHUNK_SIZE);
         int destOffset = 0;
 
         while (remaining > 0) {
@@ -2029,14 +2075,19 @@ public class BarrageMessageProducer extends LivenessArtifact
     }
 
     /**
-     * Extract values from the flat chunk list at the specified unordered positions into the destination chunk. Chunks
-     * are assumed to be densely packed with capacity {@link #DELTA_CHUNK_SIZE}, so chunk index and offset are computed
-     * arithmetically.
+     * Extract values from the flat chunk list at the specified unordered positions into the destination chunk. Uses a
+     * locality hint to avoid binary search when consecutive positions fall in the same chunk.
      */
     private static void extractUnordered(
             final ArrayList<WritableChunk<Values>> srcChunks,
+            final TLongArrayList chunkOffsets,
             final long[] positions,
             final WritableChunk<Values> destChunk) {
+
+        final int numChunks = chunkOffsets.size();
+        int lastChunkIdx = 0;
+        long lastChunkStart = 0;
+        long lastChunkEnd = chunkOffsets.get(0);
 
         for (int i = 0; i < positions.length; i++) {
             final long pos = positions[i];
@@ -2046,44 +2097,20 @@ public class BarrageMessageProducer extends LivenessArtifact
                 continue;
             }
 
-            final int chunkIdx = Math.toIntExact(pos / DELTA_CHUNK_SIZE);
-            final int offsetInChunk = Math.toIntExact(pos % DELTA_CHUNK_SIZE);
-            destChunk.copyFromChunk(srcChunks.get(chunkIdx), offsetInChunk, i, 1);
-        }
-    }
-
-    /**
-     * Append data from {@code src} into the column's dense delta storage. Continues filling the last allocated chunk if
-     * it has remaining capacity; allocates a new {@link #DELTA_CHUNK_SIZE} chunk when the current one is full.
-     */
-    private void appendToDeltaColumn(final int columnIndex, final Chunk<? extends Values> src) {
-        int srcOffset = 0;
-        int remaining = src.size();
-
-        while (remaining > 0) {
-            final WritableChunk<Values> destChunk;
-            final int destOffset;
-
-            final ArrayList<WritableChunk<Values>> chunks = deltaColumns[columnIndex];
-            if (!chunks.isEmpty() && chunks.get(chunks.size() - 1).size() < DELTA_CHUNK_SIZE) {
-                destChunk = chunks.get(chunks.size() - 1);
-                destOffset = destChunk.size();
-            } else {
-                destChunk = chunkSources[columnIndex].getChunkType().makeWritableChunk(DELTA_CHUNK_SIZE);
-                destChunk.setSize(0);
-                chunks.add(destChunk);
-                destOffset = 0;
+            // Check if pos falls in the last-used chunk before resorting to binary search.
+            if (pos < lastChunkStart || pos >= lastChunkEnd) {
+                // Narrow the binary search range based on which side of the cached chunk pos falls on.
+                if (pos < lastChunkStart) {
+                    lastChunkIdx = findChunkIdx(chunkOffsets, pos, 0, lastChunkIdx);
+                } else {
+                    lastChunkIdx = findChunkIdx(chunkOffsets, pos, lastChunkIdx + 1, numChunks);
+                }
+                lastChunkStart = lastChunkIdx > 0 ? chunkOffsets.get(lastChunkIdx - 1) : 0;
+                lastChunkEnd = chunkOffsets.get(lastChunkIdx);
             }
 
-            final int space = DELTA_CHUNK_SIZE - destOffset;
-            final int toCopy = Math.min(space, remaining);
-
-            destChunk.copyFromChunk(src, srcOffset, destOffset, toCopy);
-            destChunk.setSize(destOffset + toCopy);
-            deltaColumnOffsets[columnIndex] += toCopy;
-
-            srcOffset += toCopy;
-            remaining -= toCopy;
+            final int offsetInChunk = Math.toIntExact(pos - lastChunkStart);
+            destChunk.copyFromChunk(srcChunks.get(lastChunkIdx), offsetInChunk, i, 1);
         }
     }
 

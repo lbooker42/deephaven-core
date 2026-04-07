@@ -65,13 +65,13 @@ public interface ColumnRegion<ATTR extends Any> extends Page<ATTR>, Releasable, 
 
         @Override
         public long estimatePushdownAction(
-                final List<RegionedPushdownAction> actions,
+                final RegionedPushdownAction action,
                 final WhereFilter filter,
                 final RowSet selection,
                 final boolean usePrev,
                 final PushdownFilterContext filterContext,
                 final RegionedPushdownAction.EstimateContext estimateContext) {
-            return NULL_COLUMN_REGION.filterCost();
+            return action == NULL_COLUMN_REGION ? NULL_COLUMN_REGION.filterCost() : Long.MAX_VALUE;
         }
 
         @Override

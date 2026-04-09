@@ -215,7 +215,8 @@ public class BarrageMessageProducer extends LivenessArtifact
     // this holds the size of the current table, refreshed with each update
     private long parentTableSize;
 
-    /**
+    /*
+     * Implementation Notes:
      * On every update we compute which subset of rows need to be recorded dependent on our active subscriptions. We
      * compute two sets, which rows were added (or need to be scoped into viewports) and which rows were modified. For
      * all added (and scoped) rows we store the new values in every subscribed column. For all modified rows we store
@@ -224,8 +225,12 @@ public class BarrageMessageProducer extends LivenessArtifact
      * deltaColumn sources belong to these sets. We allocate continuous rows via a simple watermark that is reset to
      * zero whenever our update propagation job runs.
      */
+    /**
+     * The chunks containing the recorded update data for each column. As each delta is recorded, we create "add" and
+     * "mod" chunks and add them to the list of chunks for this column.
+     */
+    private final ArrayList<WritableChunk<Values>>[] deltaColumnChunks;
     private final long[] deltaColumnOffsets;
-    private final ArrayList<WritableChunk<Values>>[] deltaColumns;
     private final TLongArrayList[] deltaChunkOffsets;
 
     /**
@@ -240,6 +245,8 @@ public class BarrageMessageProducer extends LivenessArtifact
     private static final class Delta implements SafeCloseable {
         private final long step;
         private final long[] columnOffsets;
+        private final int[] addChunkStartIndex;
+        private final int[] modChunkStartIndex;
         private final TableUpdate update;
         private final WritableRowSet recordedAdds;
         private final RowSet recordedMods;
@@ -247,11 +254,14 @@ public class BarrageMessageProducer extends LivenessArtifact
         private final BitSet modifiedColumns;
 
         private Delta(final long step, final long[] columnOffsets,
+                final int[] addChunkStartIndex, final int[] modChunkStartIndex,
                 final TableUpdate update,
                 final WritableRowSet recordedAdds, final RowSet recordedMods,
                 final BitSet subscribedColumns, final BitSet modifiedColumns) {
             this.step = step;
             this.columnOffsets = Arrays.copyOf(columnOffsets, columnOffsets.length);
+            this.addChunkStartIndex = Arrays.copyOf(addChunkStartIndex, addChunkStartIndex.length);
+            this.modChunkStartIndex = Arrays.copyOf(modChunkStartIndex, modChunkStartIndex.length);
             this.update = TableUpdateImpl.copy(update);
             this.recordedAdds = recordedAdds;
             this.recordedMods = recordedMods;
@@ -333,7 +343,7 @@ public class BarrageMessageProducer extends LivenessArtifact
         // noinspection unchecked
         chunkSources = new ChunkSource.WithPrev[sources.length];
         // noinspection unchecked
-        deltaColumns = new ArrayList[sources.length];
+        deltaColumnChunks = new ArrayList[sources.length];
         deltaColumnOffsets = new long[sources.length];
         deltaChunkOffsets = new TLongArrayList[sources.length];
         realColumnType = new Class<?>[sources.length];
@@ -366,7 +376,7 @@ public class BarrageMessageProducer extends LivenessArtifact
             } else {
                 chunkSources[ci] = sources[ci];
             }
-            deltaColumns[ci] = new ArrayList<>();
+            deltaColumnChunks[ci] = new ArrayList<>();
             deltaChunkOffsets[ci] = new TLongArrayList();
         }
     }
@@ -901,9 +911,12 @@ public class BarrageMessageProducer extends LivenessArtifact
             modifiedColumns.and(activeColumns);
         }
 
-        // Construct Delta before writes so we capture the pre-write column offsets.
-        final Delta delta = new Delta(parent.getUpdateGraph().clock().currentStep(), deltaColumnOffsets,
-                upstream, addsToRecord, modsToRecord, (BitSet) activeColumns.clone(), modifiedColumns);
+        // Capture the pre-write column offsets and per-column chunk start indexes before writing data for this delta.
+        final long[] columnOffsetsSnapshot = Arrays.copyOf(deltaColumnOffsets, deltaColumnOffsets.length);
+        final int[] addChunkStartIndex = new int[chunkSources.length];
+        final int[] modChunkStartIndex = new int[chunkSources.length];
+        Arrays.fill(addChunkStartIndex, -1);
+        Arrays.fill(modChunkStartIndex, -1);
 
         if (addsToRecord.isNonempty() || modsToRecord.isNonempty()) {
             try (final SharedContext sharedContext = SharedContext.makeSharedContext()) {
@@ -937,7 +950,7 @@ public class BarrageMessageProducer extends LivenessArtifact
                                             chunkSources[columnIndex].getChunkType().makeWritableChunk(batchSize);
                                     chunkSources[columnIndex].fillChunk(
                                             fillContexts[columnIndex], destChunk, srcKeys);
-                                    deltaColumns[columnIndex].add(destChunk);
+                                    deltaColumnChunks[columnIndex].add(destChunk);
                                     deltaColumnOffsets[columnIndex] += batchSize;
 
                                     // Accumulate the cumulative offset for this new chunk.
@@ -952,14 +965,25 @@ public class BarrageMessageProducer extends LivenessArtifact
                     };
 
                     if (addsToRecord.isNonempty()) {
+                        for (int ci = activeColumns.nextSetBit(0); ci >= 0; ci = activeColumns.nextSetBit(ci + 1)) {
+                            addChunkStartIndex[ci] = deltaColumnChunks[ci].size();
+                        }
                         recordRows.accept(addsToRecord, activeColumns);
                     }
                     if (modsToRecord.isNonempty()) {
+                        for (int ci = modifiedColumns.nextSetBit(0); ci >= 0; ci = modifiedColumns.nextSetBit(ci + 1)) {
+                            modChunkStartIndex[ci] = deltaColumnChunks[ci].size();
+                        }
                         recordRows.accept(modsToRecord, modifiedColumns);
                     }
                 }
             }
         }
+
+        // Construct Delta with pre-write column offsets snapshot and the captured chunk start indexes.
+        final Delta delta = new Delta(parent.getUpdateGraph().clock().currentStep(), columnOffsetsSnapshot,
+                addChunkStartIndex, modChunkStartIndex,
+                upstream, addsToRecord, modsToRecord, (BitSet) activeColumns.clone(), modifiedColumns);
 
         if (log.isDebugEnabled()) {
             log.debug().append(logPrefix).append("update accumulation complete for step=")
@@ -1447,11 +1471,11 @@ public class BarrageMessageProducer extends LivenessArtifact
             }
 
             // cleanup for next iteration: close all chunks and clear the delta column lists
-            for (int ci = 0; ci < deltaColumns.length; ci++) {
-                for (final WritableChunk<Values> chunk : deltaColumns[ci]) {
+            for (int ci = 0; ci < deltaColumnChunks.length; ci++) {
+                for (final WritableChunk<Values> chunk : deltaColumnChunks[ci]) {
                     chunk.close();
                 }
-                deltaColumns[ci].clear();
+                deltaColumnChunks[ci].clear();
                 deltaChunkOffsets[ci].clear();
             }
 
@@ -1692,6 +1716,8 @@ public class BarrageMessageProducer extends LivenessArtifact
             firstDelta = new Delta(
                     -1,
                     hasDelta ? origDelta.columnOffsets : new long[chunkSources.length],
+                    hasDelta ? origDelta.addChunkStartIndex : new int[chunkSources.length],
+                    new int[chunkSources.length],
                     update,
                     recordedBuilder.build(),
                     RowSetFactory.empty(),
@@ -1734,7 +1760,8 @@ public class BarrageMessageProducer extends LivenessArtifact
                     while (addRemaining > 0) {
                         final int chunkSize = (int) Math.min(SNAPSHOT_CHUNK_SIZE, addRemaining);
                         final WritableChunk<Values> addChunk = adds.chunkType.makeWritableChunk(chunkSize);
-                        extractRange(deltaColumns[ci], deltaChunkOffsets[ci], firstDelta.columnOffsets[ci] + addOffset,
+                        extractRange(deltaColumnChunks[ci], deltaChunkOffsets[ci],
+                                firstDelta.columnOffsets[ci] + addOffset,
                                 chunkSize, addChunk);
                         adds.data.add(addChunk);
                         addOffset += chunkSize;
@@ -1760,7 +1787,7 @@ public class BarrageMessageProducer extends LivenessArtifact
                     while (modRemaining > 0) {
                         final int chunkSize = (int) Math.min(SNAPSHOT_CHUNK_SIZE, modRemaining);
                         final WritableChunk<Values> modChunk = mods.chunkType.makeWritableChunk(chunkSize);
-                        extractRange(deltaColumns[ci], deltaChunkOffsets[ci], modBaseStart + modOffset, chunkSize,
+                        extractRange(deltaColumnChunks[ci], deltaChunkOffsets[ci], modBaseStart + modOffset, chunkSize,
                                 modChunk);
                         mods.data.add(modChunk);
                         modOffset += chunkSize;
@@ -1893,8 +1920,45 @@ public class BarrageMessageProducer extends LivenessArtifact
                                 unfilledMods.remove(rowsToFill);
                             }
 
-                            applyRedirMapping(rowsToFill, sourceRows,
-                                    addedMapping ? retval.addedMappings : retval.modifiedMappings);
+                            if (rowsToFill.isNonempty()) {
+                                final long[][] mapping =
+                                        addedMapping ? retval.addedMappings : retval.modifiedMappings;
+                                Assert.eq(rowsToFill.size(), "rowsToFill.size()",
+                                        sourceRows.size(), "sourceRows.size()");
+
+                                // Resolve flat positions to encoded (chunkIndex << 32 | offsetInChunk) values
+                                // so that extractUnordered can decode directly without binary search.
+                                final int startChunkIdx = recordedAdds
+                                        ? delta.addChunkStartIndex[columnIndex]
+                                        : delta.modChunkStartIndex[columnIndex];
+
+                                if (startChunkIdx >= 0) {
+                                    final TLongArrayList chunkOff = deltaChunkOffsets[columnIndex];
+                                    final int[] curChunk = {startChunkIdx};
+                                    final long[] curStart =
+                                            {curChunk[0] > 0 ? chunkOff.get(curChunk[0] - 1) : 0};
+                                    final long[] curEnd = {chunkOff.get(curChunk[0])};
+
+                                    final RowSet.Iterator vit = sourceRows.iterator();
+                                    rowsToFill.forAllRowKeys(lkey -> {
+                                        final int arrIdx = (int) (lkey / SNAPSHOT_CHUNK_SIZE);
+                                        final int keyIdx = (int) (lkey % SNAPSHOT_CHUNK_SIZE);
+                                        final long[] arr = mapping[arrIdx];
+                                        Assert.eq(arr[keyIdx], "arr[keyIdx]", RowSequence.NULL_ROW_KEY,
+                                                "RowSet.NULL_ROW_KEY");
+
+                                        final long pos = vit.nextLong();
+                                        while (pos >= curEnd[0]) {
+                                            curChunk[0]++;
+                                            curStart[0] = curEnd[0];
+                                            curEnd[0] = chunkOff.get(curChunk[0]);
+                                        }
+
+                                        final int offsetInChunk = (int) (pos - curStart[0]);
+                                        arr[keyIdx] = ((long) curChunk[0] << 32) | (offsetInChunk & 0xFFFFFFFFL);
+                                    });
+                                }
+                            }
                         }
                     };
 
@@ -1922,7 +1986,7 @@ public class BarrageMessageProducer extends LivenessArtifact
             };
 
             if (coalescer.modifiedColumnSet == ModifiedColumnSet.ALL) {
-                modColumnSet.set(0, deltaColumns.length);
+                modColumnSet.set(0, deltaColumnChunks.length);
             } else {
                 modColumnSet.or(coalescer.modifiedColumnSet.extractAsBitSet());
             }
@@ -1945,7 +2009,7 @@ public class BarrageMessageProducer extends LivenessArtifact
                     final ColumnInfo info = getColumnInfo.apply(ci);
                     for (long[] addedMapping : info.addedMappings) {
                         final WritableChunk<Values> addChunk = adds.chunkType.makeWritableChunk(addedMapping.length);
-                        extractUnordered(deltaColumns[ci], deltaChunkOffsets[ci], addedMapping, addChunk);
+                        extractUnordered(deltaColumnChunks[ci], addedMapping, addChunk);
                         adds.data.add(addChunk);
                     }
                 }
@@ -1967,7 +2031,7 @@ public class BarrageMessageProducer extends LivenessArtifact
                     mods.rowsModified = info.recordedMods.copy();
                     for (long[] modifiedMapping : info.modifiedMappings) {
                         final WritableChunk<Values> modChunk = mods.chunkType.makeWritableChunk(modifiedMapping.length);
-                        extractUnordered(deltaColumns[ci], deltaChunkOffsets[ci], modifiedMapping, modChunk);
+                        extractUnordered(deltaColumnChunks[ci], modifiedMapping, modChunk);
                         mods.data.add(modChunk);
                     }
                 } else {
@@ -2001,20 +2065,6 @@ public class BarrageMessageProducer extends LivenessArtifact
             Arrays.fill(newChunk, RowSequence.NULL_ROW_KEY);
         }
         return result;
-    }
-
-    // Updates provided mapping so that mapping[i] returns values.get(i) for all i in keys.
-    private static void applyRedirMapping(final RowSet keys, final RowSet values, final long[][] mapping) {
-        Assert.eq(keys.size(), "keys.size()", values.size(), "values.size()");
-
-        final RowSet.Iterator vit = values.iterator();
-        keys.forAllRowKeys(lkey -> {
-            final int arrIdx = (int) (lkey / SNAPSHOT_CHUNK_SIZE);
-            final int keyIdx = (int) (lkey % SNAPSHOT_CHUNK_SIZE);
-            final long[] chunk = mapping[arrIdx];
-            Assert.eq(chunk[keyIdx], "chunk[keyIdx]", RowSequence.NULL_ROW_KEY, "RowSet.NULL_ROW_KEY");
-            chunk[keyIdx] = vit.nextLong();
-        });
     }
 
     /**
@@ -2075,42 +2125,25 @@ public class BarrageMessageProducer extends LivenessArtifact
     }
 
     /**
-     * Extract values from the flat chunk list at the specified unordered positions into the destination chunk. Uses a
-     * locality hint to avoid binary search when consecutive positions fall in the same chunk.
+     * Extract values from the chunk list at the specified unordered positions into the destination chunk. Each position
+     * encodes the chunk index in the upper 32 bits and the offset within that chunk in the lower 32 bits.
      */
     private static void extractUnordered(
             final ArrayList<WritableChunk<Values>> srcChunks,
-            final TLongArrayList chunkOffsets,
             final long[] positions,
             final WritableChunk<Values> destChunk) {
 
-        final int numChunks = chunkOffsets.size();
-        int lastChunkIdx = 0;
-        long lastChunkStart = 0;
-        long lastChunkEnd = chunkOffsets.get(0);
-
         for (int i = 0; i < positions.length; i++) {
-            final long pos = positions[i];
+            final long encoded = positions[i];
 
-            if (pos == RowSequence.NULL_ROW_KEY) {
+            if (encoded == RowSequence.NULL_ROW_KEY) {
                 destChunk.fillWithNullValue(i, 1);
                 continue;
             }
 
-            // Check if pos falls in the last-used chunk before resorting to binary search.
-            if (pos < lastChunkStart || pos >= lastChunkEnd) {
-                // Narrow the binary search range based on which side of the cached chunk pos falls on.
-                if (pos < lastChunkStart) {
-                    lastChunkIdx = findChunkIdx(chunkOffsets, pos, 0, lastChunkIdx);
-                } else {
-                    lastChunkIdx = findChunkIdx(chunkOffsets, pos, lastChunkIdx + 1, numChunks);
-                }
-                lastChunkStart = lastChunkIdx > 0 ? chunkOffsets.get(lastChunkIdx - 1) : 0;
-                lastChunkEnd = chunkOffsets.get(lastChunkIdx);
-            }
-
-            final int offsetInChunk = Math.toIntExact(pos - lastChunkStart);
-            destChunk.copyFromChunk(srcChunks.get(lastChunkIdx), offsetInChunk, i, 1);
+            final int chunkIdx = (int) (encoded >>> 32);
+            final int offsetInChunk = (int) (encoded & 0xFFFFFFFFL);
+            destChunk.copyFromChunk(srcChunks.get(chunkIdx), offsetInChunk, i, 1);
         }
     }
 

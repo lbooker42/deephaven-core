@@ -10,7 +10,6 @@ import io.deephaven.base.verify.Assert;
 import io.deephaven.chunk.Chunk;
 import io.deephaven.chunk.WritableChunk;
 import io.deephaven.chunk.attributes.Values;
-import io.deephaven.chunk.util.pools.ChunkPoolConstants;
 import io.deephaven.configuration.Configuration;
 import io.deephaven.engine.liveness.LivenessArtifact;
 import io.deephaven.engine.liveness.LivenessReferent;
@@ -86,7 +85,7 @@ import static io.deephaven.extensions.barrage.util.BarrageUtil.TARGET_SNAPSHOT_P
 public class BarrageMessageProducer extends LivenessArtifact
         implements DynamicNode, NotificationStepReceiver {
     public static final int DELTA_CHUNK_SIZE = Configuration.getInstance().getIntegerForClassWithDefault(
-            BarrageMessageProducer.class, "deltaChunkSize", ChunkPoolConstants.LARGEST_POOLED_CHUNK_CAPACITY);
+            BarrageMessageProducer.class, "deltaChunkSize", SNAPSHOT_CHUNK_SIZE);
 
     private static final Logger log = LoggerFactory.getLogger(BarrageMessageProducer.class);
 
@@ -1728,6 +1727,10 @@ public class BarrageMessageProducer extends LivenessArtifact
             // Gather addChunks from all underlying deltas into a single array per column.
             // Each delta's addChunks contain exactly its recordedAdds rows in order, so concatenation
             // produces the correct combined add data matching the synthesized recordedAdds RowSet.
+
+            // TODO: check JSAPI before merging, might have to condense into SNAPSHOT_CHUNK_SIZE chunks to avoid
+            // breaking the web client with too many chunks (batches) in a single message.
+
             // noinspection unchecked
             final WritableChunk<Values>[][] blinkAddChunks = new WritableChunk[chunkSources.length][];
             if (hasDelta) {

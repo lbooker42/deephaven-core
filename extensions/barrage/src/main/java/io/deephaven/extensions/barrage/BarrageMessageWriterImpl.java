@@ -1084,6 +1084,9 @@ public class BarrageMessageWriterImpl implements BarrageMessageWriter {
                 startPos = modOffsets.get(startRange);
                 final long endRange = startRange + maxLength - 1;
                 endPos = endRange >= modOffsets.size() ? modOffsets.lastRowKey() : modOffsets.get(endRange);
+                if (context != null) {
+                    endPos = Math.min(endPos, context.getLastRowOffset());
+                }
             } else if (startRange >= mcd.rowsModified.original.size()) {
                 startPos = RowSet.NULL_ROW_KEY;
                 endPos = RowSet.NULL_ROW_KEY;

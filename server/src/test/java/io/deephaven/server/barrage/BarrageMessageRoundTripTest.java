@@ -1351,7 +1351,7 @@ public class BarrageMessageRoundTripTest extends RefreshingTableTestCase {
         final RowSet allRows = RowSetFactory.fromRange(0, numRows - 1);
         updateGraph.runWithinUnitTestCycle(() -> {
             TstUtils.addToTable(sourceTable, allRows);
-            // This results in queryTable downstream update and the BMP progating the adds.
+            // This results in queryTable downstream update and the BMP propagating the adds.
             sourceTable.notifyListeners(new TableUpdateImpl(
                     allRows.copy(),
                     RowSetFactory.empty(),

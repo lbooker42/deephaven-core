@@ -87,6 +87,16 @@ public class BarrageMessageProducer extends LivenessArtifact
     public static final int DELTA_CHUNK_SIZE = Configuration.getInstance().getIntegerForClassWithDefault(
             BarrageMessageProducer.class, "deltaChunkSize", SNAPSHOT_CHUNK_SIZE);
 
+    // We use bit encoding for delta chunk mapping arrays to prevent binary search or iteration to determine source
+    // chunks. The following are the bit mapping for the values (stored as long).
+    // bits 0-39 = position within that delta's chunk list (up to 1,099,511,627,776 unique positions).
+    private static final long DELTA_POSITION_MASK = 0xFFFFFFFFFFL;
+    // bits 40-61 = actual delta index into pendingDeltas (up to 4,194,304 unique deltas per update)
+    private static final int DELTA_INDEX_SHIFT = 40;
+    private static final long DELTA_INDEX_MASK = 0x3FFFFFL;
+    // bit 62 = 0 for addChunks or 1 for modChunks
+    private static final int DELTA_MOD_FLAG_BIT = 62;
+
     private static final Logger log = LoggerFactory.getLogger(BarrageMessageProducer.class);
 
     public static final boolean SUBSCRIPTION_GROWTH_ENABLED =
@@ -1832,7 +1842,8 @@ public class BarrageMessageProducer extends LivenessArtifact
             if (isBlinkTable) {
                 // The synthetic firstDelta is not in pendingDeltas; close it to release the
                 // synthesized update and recordedAdds. Any chunks were already detached above.
-                firstDelta.close();
+                try (final SafeCloseable ignored = firstDelta) {
+                }
             }
         } else {
             // We must coalesce these updates.
@@ -1935,12 +1946,9 @@ public class BarrageMessageProducer extends LivenessArtifact
                     final Delta delta = pendingDeltas.get(i);
 
                     // Encode (fromMods, deltaIndex) into the high bits of sourceRows values so that
-                    // applyRedirMapping stores them verbatim in the mapping arrays. Bit layout (64-bit long):
-                    // bits 0-39: srcPos within addChunks/modChunks (up to 1,099,511,627,776 unique positions)
-                    // bits 40-61: deltaIndex (up to 4,194,304 unique deltas per update)
-                    // bit 62: fromMods flag — 0 → addChunks, 1 → modChunks
-                    final long encodedAddBase = ((long) i) << 40; // bits 40-61 = deltaIndex, bit 62 = 0 → addChunks
-                    final long encodedModBase = encodedAddBase | (1L << 62); // bit 62 = 1 → modChunks
+                    // applyRedirMapping stores them verbatim in the mapping arrays.
+                    final long encodedAddBase = ((long) i) << DELTA_INDEX_SHIFT;
+                    final long encodedModBase = encodedAddBase | (1L << DELTA_MOD_FLAG_BIT);
 
                     final BiConsumer<Boolean, Boolean> applyMapping = (addedMapping, recordedAdds) -> {
                         final WritableRowSet remaining = addedMapping ? addedRemaining : modifiedRemaining;
@@ -2085,9 +2093,7 @@ public class BarrageMessageProducer extends LivenessArtifact
 
     /**
      * Fill data from per-delta chunk lists into an output chunk using a pre-computed mapping array. Each mapping entry
-     * encodes: bits 0-39 = position within that delta's chunk list (up to 1,099,511,627,776 unique positions), bits
-     * 40-61 = actual delta index into {@code pendingDeltas} (up to 4,194,304 unique deltas per update), bit 62 = 0 for
-     * {@code addChunks} or 1 for {@code modChunks}.
+     * was encoded using the bit pattern constants.
      *
      * @param mapping the encoded source references, one per output position
      * @param dest the output chunk to fill (sized to mapping.length)
@@ -2099,9 +2105,9 @@ public class BarrageMessageProducer extends LivenessArtifact
             final int columnIndex) {
         for (int pos = 0; pos < mapping.length; ++pos) {
             final long encoded = mapping[pos];
-            final boolean fromMods = (encoded & (1L << 62)) != 0;
-            final int deltaIdx = (int) ((encoded >>> 40) & 0x3FFFFFL);
-            final long srcPos = encoded & 0xFFFFFFFFFFL;
+            final boolean fromMods = (encoded & (1L << DELTA_MOD_FLAG_BIT)) != 0;
+            final int deltaIdx = (int) ((encoded >>> DELTA_INDEX_SHIFT) & DELTA_INDEX_MASK);
+            final long srcPos = encoded & DELTA_POSITION_MASK;
 
             final Delta srcDelta = pendingDeltas.get(deltaIdx);
             final WritableChunk<Values>[] srcChunks = fromMods ? srcDelta.modChunks[columnIndex]

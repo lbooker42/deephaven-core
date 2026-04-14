@@ -5,6 +5,7 @@ package io.deephaven.server.barrage;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.rpc.Code;
+import io.deephaven.base.Pair;
 import io.deephaven.base.formatters.FormatBitSet;
 import io.deephaven.base.verify.Assert;
 import io.deephaven.chunk.Chunk;
@@ -30,6 +31,7 @@ import io.deephaven.extensions.barrage.BarragePerformanceLog;
 import io.deephaven.extensions.barrage.BarrageSubscriptionOptions;
 import io.deephaven.extensions.barrage.BarrageSubscriptionPerformanceLogger;
 import io.deephaven.extensions.barrage.BarrageTypeInfo;
+import io.deephaven.extensions.barrage.chunk.BarrageCopyKernel;
 import io.deephaven.extensions.barrage.chunk.ChunkWriter;
 import io.deephaven.extensions.barrage.chunk.DefaultChunkWriterFactory;
 import io.deephaven.extensions.barrage.util.BarrageUtil;
@@ -87,16 +89,6 @@ public class BarrageMessageProducer extends LivenessArtifact
         implements DynamicNode, NotificationStepReceiver {
     public static final int DELTA_CHUNK_SIZE = Configuration.getInstance().getIntegerForClassWithDefault(
             BarrageMessageProducer.class, "deltaChunkSize", ChunkPoolConstants.LARGEST_POOLED_CHUNK_CAPACITY);
-
-    // We use bit encoding for delta chunk mapping arrays to prevent binary search or iteration to determine source
-    // chunks. The following are the bit mapping for the values (stored as long).
-    // bits 0-39 = position within that delta's chunk list (up to 1,099,511,627,776 unique positions).
-    private static final long DELTA_POSITION_MASK = 0xFFFFFFFFFFL;
-    // bits 40-61 = actual delta index into pendingDeltas (up to 4,194,304 unique deltas per update)
-    private static final int DELTA_INDEX_SHIFT = 40;
-    private static final long DELTA_INDEX_MASK = 0x3FFFFFL;
-    // bit 62 = 0 for addChunks or 1 for modChunks
-    private static final int DELTA_MOD_FLAG_BIT = 62;
 
     private static final Logger log = LoggerFactory.getLogger(BarrageMessageProducer.class);
 
@@ -1947,8 +1939,8 @@ public class BarrageMessageProducer extends LivenessArtifact
 
                     // Encode (fromMods, deltaIndex) into the high bits of sourceRows values so that
                     // applyRedirMapping stores them verbatim in the mapping arrays.
-                    final long encodedAddBase = ((long) i) << DELTA_INDEX_SHIFT;
-                    final long encodedModBase = encodedAddBase | (1L << DELTA_MOD_FLAG_BIT);
+                    final long encodedAddBase = ((long) i) << BarrageCopyKernel.DELTA_INDEX_SHIFT;
+                    final long encodedModBase = encodedAddBase | (1L << BarrageCopyKernel.DELTA_MOD_FLAG_BIT);
 
                     final BiConsumer<Boolean, Boolean> applyMapping = (addedMapping, recordedAdds) -> {
                         final WritableRowSet remaining = addedMapping ? addedRemaining : modifiedRemaining;
@@ -2009,6 +2001,26 @@ public class BarrageMessageProducer extends LivenessArtifact
             downstream.addColumnData = new BarrageMessage.AddColumnData[chunkSources.length];
             downstream.modColumnData = new BarrageMessage.ModColumnData[chunkSources.length];
 
+            // Helper to create the add / mod chunks for a given column index.
+            final IntFunction<Pair<WritableChunk<Values>[][], WritableChunk<Values>[][]>> createColumnDeltaChunks =
+                    (ci) -> {
+                        final int numDeltas = pendingDeltas.size();
+                        // noinspection unchecked
+                        final WritableChunk<Values>[][] colAddChunks = new WritableChunk[numDeltas][];
+                        // noinspection unchecked
+                        final WritableChunk<Values>[][] colModChunks = new WritableChunk[numDeltas][];
+                        for (int di = 0; di < numDeltas; ++di) {
+                            final Delta d = pendingDeltas.get(di);
+                            colAddChunks[di] = d.addChunks[ci];
+                            colModChunks[di] = d.modChunks[ci];
+                        }
+                        return new Pair<>(colAddChunks, colModChunks);
+                    };
+
+            // Local cache of add / mod chunks (to prevent recreating for both adds and mods).
+            // noinspection unchecked
+            final Pair<WritableChunk<Values>[][], WritableChunk<Values>[][]>[] columnDeltaChunks =
+                    new Pair[chunkSources.length];
             for (int ci = 0; ci < downstream.addColumnData.length; ++ci) {
                 final BarrageMessage.AddColumnData adds = new BarrageMessage.AddColumnData();
                 adds.data = new ArrayList<>();
@@ -2017,10 +2029,16 @@ public class BarrageMessageProducer extends LivenessArtifact
                 downstream.addColumnData[ci] = adds;
 
                 if (addColumnSet.get(ci)) {
+                    if (columnDeltaChunks[ci] == null) {
+                        columnDeltaChunks[ci] = createColumnDeltaChunks.apply(ci);
+                    }
                     final ColumnInfo info = getColumnInfo.apply(ci);
+                    final BarrageCopyKernel copyKernel =
+                            BarrageCopyKernel.makeBarrageCopyKernel(adds.chunkType);
                     for (long[] addedMapping : info.addedMappings) {
                         final WritableChunk<Values> chunk = adds.chunkType.makeWritableChunk(addedMapping.length);
-                        fillFromDeltaChunks(addedMapping, chunk, ci);
+                        copyKernel.copyFromDeltaChunks(addedMapping, chunk,
+                                columnDeltaChunks[ci].first, columnDeltaChunks[ci].second, DELTA_CHUNK_SIZE);
                         adds.data.add(chunk);
                     }
                 }
@@ -2037,11 +2055,17 @@ public class BarrageMessageProducer extends LivenessArtifact
                 downstream.modColumnData[ci] = mods;
 
                 if (modColumnSet.get(ci)) {
+                    if (columnDeltaChunks[ci] == null) {
+                        columnDeltaChunks[ci] = createColumnDeltaChunks.apply(ci);
+                    }
                     final ColumnInfo info = getColumnInfo.apply(ci);
+                    final BarrageCopyKernel copyKernel =
+                            BarrageCopyKernel.makeBarrageCopyKernel(mods.chunkType);
                     mods.rowsModified = info.recordedMods.copy();
                     for (long[] modifiedMapping : info.modifiedMappings) {
                         final WritableChunk<Values> chunk = mods.chunkType.makeWritableChunk(modifiedMapping.length);
-                        fillFromDeltaChunks(modifiedMapping, chunk, ci);
+                        copyKernel.copyFromDeltaChunks(modifiedMapping, chunk,
+                                columnDeltaChunks[ci].first, columnDeltaChunks[ci].second, DELTA_CHUNK_SIZE);
                         mods.data.add(chunk);
                     }
                 } else {
@@ -2089,33 +2113,6 @@ public class BarrageMessageProducer extends LivenessArtifact
             Assert.eq(chunk[keyIdx], "chunk[keyIdx]", RowSequence.NULL_ROW_KEY, "RowSet.NULL_ROW_KEY");
             chunk[keyIdx] = vit.nextLong();
         });
-    }
-
-    /**
-     * Fill data from per-delta chunk lists into an output chunk using a pre-computed mapping array. Each mapping entry
-     * was encoded using the bit pattern constants.
-     *
-     * @param mapping the encoded source references, one per output position
-     * @param dest the output chunk to fill (sized to mapping.length)
-     * @param columnIndex the column index to look up in each delta's chunk arrays
-     */
-    private void fillFromDeltaChunks(
-            final long[] mapping,
-            final WritableChunk<Values> dest,
-            final int columnIndex) {
-        for (int pos = 0; pos < mapping.length; ++pos) {
-            final long encoded = mapping[pos];
-            final boolean fromMods = (encoded & (1L << DELTA_MOD_FLAG_BIT)) != 0;
-            final int deltaIdx = (int) ((encoded >>> DELTA_INDEX_SHIFT) & DELTA_INDEX_MASK);
-            final long srcPos = encoded & DELTA_POSITION_MASK;
-
-            final Delta srcDelta = pendingDeltas.get(deltaIdx);
-            final WritableChunk<Values>[] srcChunks = fromMods ? srcDelta.modChunks[columnIndex]
-                    : srcDelta.addChunks[columnIndex];
-            final int srcChunkIdx = (int) (srcPos / DELTA_CHUNK_SIZE);
-            final int srcOff = (int) (srcPos % DELTA_CHUNK_SIZE);
-            dest.copyFromChunk(srcChunks[srcChunkIdx], srcOff, pos, 1);
-        }
     }
 
     private void flipSnapshotStateForSubscriptions(

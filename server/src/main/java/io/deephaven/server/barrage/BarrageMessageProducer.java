@@ -10,6 +10,7 @@ import io.deephaven.base.verify.Assert;
 import io.deephaven.chunk.Chunk;
 import io.deephaven.chunk.WritableChunk;
 import io.deephaven.chunk.attributes.Values;
+import io.deephaven.chunk.util.pools.ChunkPoolConstants;
 import io.deephaven.configuration.Configuration;
 import io.deephaven.engine.liveness.LivenessArtifact;
 import io.deephaven.engine.liveness.LivenessReferent;
@@ -85,7 +86,7 @@ import static io.deephaven.extensions.barrage.util.BarrageUtil.TARGET_SNAPSHOT_P
 public class BarrageMessageProducer extends LivenessArtifact
         implements DynamicNode, NotificationStepReceiver {
     public static final int DELTA_CHUNK_SIZE = Configuration.getInstance().getIntegerForClassWithDefault(
-            BarrageMessageProducer.class, "deltaChunkSize", SNAPSHOT_CHUNK_SIZE);
+            BarrageMessageProducer.class, "deltaChunkSize", ChunkPoolConstants.LARGEST_POOLED_CHUNK_CAPACITY);
 
     // We use bit encoding for delta chunk mapping arrays to prevent binary search or iteration to determine source
     // chunks. The following are the bit mapping for the values (stored as long).
@@ -245,14 +246,14 @@ public class BarrageMessageProducer extends LivenessArtifact
          * WritableChunks}, each holding up to {@code DELTA_CHUNK_SIZE} rows of data. Null for columns not in
          * {@code subscribedColumns}. Slots may be set to null after detachment for zero-copy transfer.
          */
-        private WritableChunk<Values>[][] addChunks;
+        private final WritableChunk<Values>[][] addChunks;
 
         /**
          * Per-column chunk storage for modified rows. {@code modChunks[columnIndex]} is an array of
          * {@link WritableChunk WritableChunks}, each holding up to {@code DELTA_CHUNK_SIZE} rows of data. Null for
          * columns not in {@code modifiedColumns}. Slots may be set to null after detachment for zero-copy transfer.
          */
-        private WritableChunk<Values>[][] modChunks;
+        private final WritableChunk<Values>[][] modChunks;
 
         private Delta(final long step,
                 final TableUpdate update,
@@ -309,7 +310,6 @@ public class BarrageMessageProducer extends LivenessArtifact
                 }
                 for (final WritableChunk<Values> chunk : chunks) {
                     try (final SafeCloseable ignored = chunk) {
-                        // no-op
                     }
                 }
             }

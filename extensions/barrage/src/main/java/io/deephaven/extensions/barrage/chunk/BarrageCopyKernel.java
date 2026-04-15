@@ -50,20 +50,36 @@ public interface BarrageCopyKernel {
     }
 
     /**
+     * Base context for a BarrageCopyKernel.
+     **/
+    interface BarrageCopyKernelContext {
+        int deltaChunkSize();
+    }
+
+    /**
+     * Create a context for this copy kernel that will contain add / mod delta chunks cast to the correct type.
+     *
+     * @param addChunks the add delta chunks (per delta)
+     * @param modChunks the mod delta chunks (per delta)
+     * @return a context that can be passed to
+     *         {@link #copyFromDeltaChunks(long[], WritableChunk, BarrageCopyKernelContext)} to drive the copy from the
+     *         add / mod delta chunks into the output chunk.
+     */
+    BarrageCopyKernelContext makeContext(
+            WritableChunk<Values>[][] addChunks,
+            WritableChunk<Values>[][] modChunks,
+            int deltaChunkSize);
+
+    /**
      * Copy cells from per-delta source chunk arrays into a destination chunk.
      *
      * @param mapping encoded source references, one per output position
      * @param dest the output chunk to fill (sized to {@code mapping.length})
-     * @param addChunks per-delta add chunk arrays: {@code addChunks[deltaIdx]} holds the chunks for one column from
-     *        delta {@code deltaIdx}
-     * @param modChunks per-delta mod chunk arrays: {@code modChunks[deltaIdx]} holds the chunks for one column from
-     *        delta {@code deltaIdx}
-     * @param deltaChunkSize the maximum number of rows per source chunk
+     * @param context the context returned from {@link #makeContext(WritableChunk[][], WritableChunk[][], int)} that
+     *        contains the correctly typed add / mod delta chunks to drive the copy.
      */
     void copyFromDeltaChunks(
             long[] mapping,
             WritableChunk<Values> dest,
-            WritableChunk<Values>[][] addChunks,
-            WritableChunk<Values>[][] modChunks,
-            int deltaChunkSize);
+            BarrageCopyKernelContext context);
 }

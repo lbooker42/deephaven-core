@@ -5,7 +5,6 @@ package io.deephaven.server.barrage;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.rpc.Code;
-import io.deephaven.base.Pair;
 import io.deephaven.base.formatters.FormatBitSet;
 import io.deephaven.base.verify.Assert;
 import io.deephaven.chunk.Chunk;
@@ -58,10 +57,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.BiConsumer;
-import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.function.IntFunction;
+import java.util.function.*;
 import java.util.stream.Stream;
 
 import static io.deephaven.engine.table.impl.remote.ConstructSnapshot.SNAPSHOT_CHUNK_SIZE;
@@ -2001,9 +1997,9 @@ public class BarrageMessageProducer extends LivenessArtifact
             downstream.addColumnData = new BarrageMessage.AddColumnData[chunkSources.length];
             downstream.modColumnData = new BarrageMessage.ModColumnData[chunkSources.length];
 
-            // Helper to create the add / mod chunks for a given column index.
-            final IntFunction<Pair<WritableChunk<Values>[][], WritableChunk<Values>[][]>> createColumnDeltaChunks =
-                    (ci) -> {
+            // Helper to create the copy kernel contexts for a given column index.
+            final BiFunction<BarrageCopyKernel, Integer, BarrageCopyKernel.BarrageCopyKernelContext> contextCreator =
+                    (copyKernel, columnIndex) -> {
                         final int numDeltas = pendingDeltas.size();
                         // noinspection unchecked
                         final WritableChunk<Values>[][] colAddChunks = new WritableChunk[numDeltas][];
@@ -2011,16 +2007,15 @@ public class BarrageMessageProducer extends LivenessArtifact
                         final WritableChunk<Values>[][] colModChunks = new WritableChunk[numDeltas][];
                         for (int di = 0; di < numDeltas; ++di) {
                             final Delta d = pendingDeltas.get(di);
-                            colAddChunks[di] = d.addChunks[ci];
-                            colModChunks[di] = d.modChunks[ci];
+                            colAddChunks[di] = d.addChunks[columnIndex];
+                            colModChunks[di] = d.modChunks[columnIndex];
                         }
-                        return new Pair<>(colAddChunks, colModChunks);
+                        return copyKernel.makeContext(colAddChunks, colModChunks, DELTA_CHUNK_SIZE);
                     };
 
-            // Local cache of add / mod chunks (to prevent recreating for both adds and mods).
-            // noinspection unchecked
-            final Pair<WritableChunk<Values>[][], WritableChunk<Values>[][]>[] columnDeltaChunks =
-                    new Pair[chunkSources.length];
+            // Local cache of contexts (to avoid recreating for both adds and mods).
+            final BarrageCopyKernel.BarrageCopyKernelContext[] contexts =
+                    new BarrageCopyKernel.BarrageCopyKernelContext[chunkSources.length];
             for (int ci = 0; ci < downstream.addColumnData.length; ++ci) {
                 final BarrageMessage.AddColumnData adds = new BarrageMessage.AddColumnData();
                 adds.data = new ArrayList<>();
@@ -2029,16 +2024,16 @@ public class BarrageMessageProducer extends LivenessArtifact
                 downstream.addColumnData[ci] = adds;
 
                 if (addColumnSet.get(ci)) {
-                    if (columnDeltaChunks[ci] == null) {
-                        columnDeltaChunks[ci] = createColumnDeltaChunks.apply(ci);
+                    final BarrageCopyKernel copyKernel = BarrageCopyKernel.makeBarrageCopyKernel(adds.chunkType);
+                    BarrageCopyKernel.BarrageCopyKernelContext localCtx = contexts[ci];
+                    if (localCtx == null) {
+                        // Cache this against mods needing it.
+                        localCtx = contexts[ci] = contextCreator.apply(copyKernel, ci);
                     }
                     final ColumnInfo info = getColumnInfo.apply(ci);
-                    final BarrageCopyKernel copyKernel =
-                            BarrageCopyKernel.makeBarrageCopyKernel(adds.chunkType);
                     for (long[] addedMapping : info.addedMappings) {
                         final WritableChunk<Values> chunk = adds.chunkType.makeWritableChunk(addedMapping.length);
-                        copyKernel.copyFromDeltaChunks(addedMapping, chunk,
-                                columnDeltaChunks[ci].first, columnDeltaChunks[ci].second, DELTA_CHUNK_SIZE);
+                        copyKernel.copyFromDeltaChunks(addedMapping, chunk, localCtx);
                         adds.data.add(chunk);
                     }
                 }
@@ -2055,17 +2050,16 @@ public class BarrageMessageProducer extends LivenessArtifact
                 downstream.modColumnData[ci] = mods;
 
                 if (modColumnSet.get(ci)) {
-                    if (columnDeltaChunks[ci] == null) {
-                        columnDeltaChunks[ci] = createColumnDeltaChunks.apply(ci);
+                    final BarrageCopyKernel copyKernel = BarrageCopyKernel.makeBarrageCopyKernel(mods.chunkType);
+                    BarrageCopyKernel.BarrageCopyKernelContext localCtx = contexts[ci];
+                    if (localCtx == null) {
+                        localCtx = contextCreator.apply(copyKernel, ci);
                     }
                     final ColumnInfo info = getColumnInfo.apply(ci);
-                    final BarrageCopyKernel copyKernel =
-                            BarrageCopyKernel.makeBarrageCopyKernel(mods.chunkType);
                     mods.rowsModified = info.recordedMods.copy();
                     for (long[] modifiedMapping : info.modifiedMappings) {
                         final WritableChunk<Values> chunk = mods.chunkType.makeWritableChunk(modifiedMapping.length);
-                        copyKernel.copyFromDeltaChunks(modifiedMapping, chunk,
-                                columnDeltaChunks[ci].first, columnDeltaChunks[ci].second, DELTA_CHUNK_SIZE);
+                        copyKernel.copyFromDeltaChunks(modifiedMapping, chunk, localCtx);
                         mods.data.add(chunk);
                     }
                 } else {

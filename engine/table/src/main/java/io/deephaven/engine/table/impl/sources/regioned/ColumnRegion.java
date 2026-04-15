@@ -39,7 +39,7 @@ public interface ColumnRegion<ATTR extends Any> extends Page<ATTR>, Releasable, 
         private static final RegionedPushdownAction.Region NULL_COLUMN_REGION =
                 new RegionedPushdownAction.Region(
                         () -> false,
-                        PushdownResult.SINGLE_VALUE_REGION_COST,
+                        PushdownResult.REGION_SINGLE_VALUE_COST,
                         (ctx) -> true,
                         (tl) -> true,
                         (cr) -> cr instanceof Null);

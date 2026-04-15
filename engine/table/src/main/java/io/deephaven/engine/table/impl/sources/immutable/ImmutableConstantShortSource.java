@@ -117,7 +117,7 @@ public class ImmutableConstantShortSource
             final JobScheduler jobScheduler,
             final LongConsumer onComplete,
             final Consumer<Exception> onError) {
-        onComplete.accept(PushdownResult.SINGLE_VALUE_COLUMN_COST);
+        onComplete.accept(PushdownResult.TABLE_SINGLE_VALUE_COLUMN_COST);
     }
 
     @Override

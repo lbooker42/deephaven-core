@@ -457,28 +457,28 @@ public class ParquetTableLocation extends AbstractTableLocation {
     private static final RegionedPushdownAction.Location ParquetRowGroupMetadata =
             new RegionedPushdownAction.Location(
                     () -> QueryTable.DISABLE_WHERE_PUSHDOWN_PARQUET_ROW_GROUP_METADATA,
-                    PushdownResult.METADATA_STATS_COST,
+                    PushdownResult.REGION_METADATA_STATS_COST,
                     BasePushdownFilterContext::supportsMetadataFiltering,
                     (tl) -> ((ParquetTableLocation) tl).supportsMetadataFiltering());
 
     private static final RegionedPushdownAction.Location InMemoryDataIndex =
             new RegionedPushdownAction.Location(
                     () -> QueryTable.DISABLE_WHERE_PUSHDOWN_DATA_INDEX,
-                    PushdownResult.IN_MEMORY_DATA_INDEX_COST,
+                    PushdownResult.LOCATION_IN_MEMORY_DATA_INDEX_COST,
                     BasePushdownFilterContext::supportsInMemoryDataIndexFiltering,
                     (tl) -> ((ParquetTableLocation) tl).supportsInMemoryDataIndexFiltering());
 
     private static final RegionedPushdownAction.Location ParquetDictionary =
             new RegionedPushdownAction.Location(
                     () -> QueryTable.DISABLE_WHERE_PUSHDOWN_PARQUET_DICTIONARY,
-                    PushdownResult.DICTIONARY_DATA_COST,
+                    PushdownResult.REGION_DICTIONARY_DATA_COST,
                     BasePushdownFilterContext::supportsChunkFiltering,
                     (tl) -> ((ParquetTableLocation) tl).supportsDictionaryFiltering());
 
     private static final RegionedPushdownAction.Location DeferredDataIndex =
             new RegionedPushdownAction.Location(
                     () -> QueryTable.DISABLE_WHERE_PUSHDOWN_DATA_INDEX,
-                    PushdownResult.DEFERRED_DATA_INDEX_COST,
+                    PushdownResult.LOCATION_DEFERRED_DATA_INDEX_COST,
                     BasePushdownFilterContext::supportsDeferredDataIndexFiltering,
                     (tl) -> ((ParquetTableLocation) tl).supportsDeferredDataIndexFiltering());
 

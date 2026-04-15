@@ -26,25 +26,25 @@ public class DoubleBarrageCopyKernel {
                 final WritableChunk<Values>[][] modChunks,
                 final int deltaChunkSize) {
             // Clone and cast the add / mod chunk arrays to WritableDoubleChunk.
-            //noinspection unchecked
+            // noinspection unchecked
             this.addChunks = new WritableDoubleChunk[addChunks.length][];
             for (int i = 0; i < addChunks.length; i++) {
                 if (addChunks[i] == null) {
                     continue;
                 }
-                //noinspection unchecked
+                // noinspection unchecked
                 this.addChunks[i] = new WritableDoubleChunk[addChunks[i].length];
                 for (int j = 0; j < addChunks[i].length; j++) {
                     this.addChunks[i][j] = addChunks[i][j].asWritableDoubleChunk();
                 }
             }
-            //noinspection unchecked
+            // noinspection unchecked
             this.modChunks = new WritableDoubleChunk[modChunks.length][];
             for (int i = 0; i < modChunks.length; i++) {
                 if (modChunks[i] == null) {
                     continue;
                 }
-                //noinspection unchecked
+                // noinspection unchecked
                 this.modChunks[i] = new WritableDoubleChunk[modChunks[i].length];
                 for (int j = 0; j < modChunks[i].length; j++) {
                     this.modChunks[i][j] = modChunks[i][j].asWritableDoubleChunk();
@@ -71,6 +71,8 @@ public class DoubleBarrageCopyKernel {
 
         final DoubleBarrageCopyKernelContext doubleContext = (DoubleBarrageCopyKernelContext) context;
         final int deltaChunkSize = doubleContext.deltaChunkSize();
+        final WritableDoubleChunk<Values>[][] addChunks = doubleContext.addChunks;
+        final WritableDoubleChunk<Values>[][] modChunks = doubleContext.modChunks;
 
         for (int pos = 0; pos < mapping.length; ++pos) {
             final long encoded = mapping[pos];
@@ -79,19 +81,17 @@ public class DoubleBarrageCopyKernel {
                     (int) ((encoded >>> BarrageCopyKernel.DELTA_INDEX_SHIFT) & BarrageCopyKernel.DELTA_INDEX_MASK);
             final long srcPos = encoded & BarrageCopyKernel.DELTA_POSITION_MASK;
 
-            final WritableChunk<Values>[] srcChunks = fromMods
-                    ? doubleContext.modChunks[deltaIdx]
-                    : doubleContext.addChunks[deltaIdx];
+            final WritableDoubleChunk<Values>[] srcChunks = fromMods ? modChunks[deltaIdx] : addChunks[deltaIdx];
             final int srcChunkIdx = (int) (srcPos / deltaChunkSize);
             final int srcOff = (int) (srcPos % deltaChunkSize);
-            dest.set(pos, srcChunks[srcChunkIdx].asDoubleChunk().get(srcOff));
+            dest.set(pos, srcChunks[srcChunkIdx].get(srcOff));
         }
     }
 
     /**
-     * Instance of the DoubleBarrageCopyKernel that delegates to static methods.
+     * Implementation of the DoubleBarrageCopyKernel that delegates to static methods.
      */
-    private static class DoubleBarrageCopyKernelInstance implements BarrageCopyKernel {
+    private static class DoubleBarrageCopyKernelImpl implements BarrageCopyKernel {
         @Override
         public BarrageCopyKernelContext makeContext(WritableChunk<Values>[][] addChunks,
                 WritableChunk<Values>[][] modChunks, int deltaChunkSize) {
@@ -104,5 +104,5 @@ public class DoubleBarrageCopyKernel {
         }
     }
 
-    static final BarrageCopyKernel INSTANCE = new DoubleBarrageCopyKernel.DoubleBarrageCopyKernelInstance();
+    static final BarrageCopyKernel INSTANCE = new DoubleBarrageCopyKernelImpl();
 }

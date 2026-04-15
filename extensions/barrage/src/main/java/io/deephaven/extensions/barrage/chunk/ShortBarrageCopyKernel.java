@@ -26,25 +26,25 @@ public class ShortBarrageCopyKernel {
                 final WritableChunk<Values>[][] modChunks,
                 final int deltaChunkSize) {
             // Clone and cast the add / mod chunk arrays to WritableShortChunk.
-            //noinspection unchecked
+            // noinspection unchecked
             this.addChunks = new WritableShortChunk[addChunks.length][];
             for (int i = 0; i < addChunks.length; i++) {
                 if (addChunks[i] == null) {
                     continue;
                 }
-                //noinspection unchecked
+                // noinspection unchecked
                 this.addChunks[i] = new WritableShortChunk[addChunks[i].length];
                 for (int j = 0; j < addChunks[i].length; j++) {
                     this.addChunks[i][j] = addChunks[i][j].asWritableShortChunk();
                 }
             }
-            //noinspection unchecked
+            // noinspection unchecked
             this.modChunks = new WritableShortChunk[modChunks.length][];
             for (int i = 0; i < modChunks.length; i++) {
                 if (modChunks[i] == null) {
                     continue;
                 }
-                //noinspection unchecked
+                // noinspection unchecked
                 this.modChunks[i] = new WritableShortChunk[modChunks[i].length];
                 for (int j = 0; j < modChunks[i].length; j++) {
                     this.modChunks[i][j] = modChunks[i][j].asWritableShortChunk();
@@ -71,6 +71,8 @@ public class ShortBarrageCopyKernel {
 
         final ShortBarrageCopyKernelContext shortContext = (ShortBarrageCopyKernelContext) context;
         final int deltaChunkSize = shortContext.deltaChunkSize();
+        final WritableShortChunk<Values>[][] addChunks = shortContext.addChunks;
+        final WritableShortChunk<Values>[][] modChunks = shortContext.modChunks;
 
         for (int pos = 0; pos < mapping.length; ++pos) {
             final long encoded = mapping[pos];
@@ -79,19 +81,17 @@ public class ShortBarrageCopyKernel {
                     (int) ((encoded >>> BarrageCopyKernel.DELTA_INDEX_SHIFT) & BarrageCopyKernel.DELTA_INDEX_MASK);
             final long srcPos = encoded & BarrageCopyKernel.DELTA_POSITION_MASK;
 
-            final WritableChunk<Values>[] srcChunks = fromMods
-                    ? shortContext.modChunks[deltaIdx]
-                    : shortContext.addChunks[deltaIdx];
+            final WritableShortChunk<Values>[] srcChunks = fromMods ? modChunks[deltaIdx] : addChunks[deltaIdx];
             final int srcChunkIdx = (int) (srcPos / deltaChunkSize);
             final int srcOff = (int) (srcPos % deltaChunkSize);
-            dest.set(pos, srcChunks[srcChunkIdx].asShortChunk().get(srcOff));
+            dest.set(pos, srcChunks[srcChunkIdx].get(srcOff));
         }
     }
 
     /**
-     * Instance of the ShortBarrageCopyKernel that delegates to static methods.
+     * Implementation of the ShortBarrageCopyKernel that delegates to static methods.
      */
-    private static class ShortBarrageCopyKernelInstance implements BarrageCopyKernel {
+    private static class ShortBarrageCopyKernelImpl implements BarrageCopyKernel {
         @Override
         public BarrageCopyKernelContext makeContext(WritableChunk<Values>[][] addChunks,
                 WritableChunk<Values>[][] modChunks, int deltaChunkSize) {
@@ -104,5 +104,5 @@ public class ShortBarrageCopyKernel {
         }
     }
 
-    static final BarrageCopyKernel INSTANCE = new ShortBarrageCopyKernel.ShortBarrageCopyKernelInstance();
+    static final BarrageCopyKernel INSTANCE = new ShortBarrageCopyKernelImpl();
 }

@@ -26,25 +26,25 @@ public class LongBarrageCopyKernel {
                 final WritableChunk<Values>[][] modChunks,
                 final int deltaChunkSize) {
             // Clone and cast the add / mod chunk arrays to WritableLongChunk.
-            //noinspection unchecked
+            // noinspection unchecked
             this.addChunks = new WritableLongChunk[addChunks.length][];
             for (int i = 0; i < addChunks.length; i++) {
                 if (addChunks[i] == null) {
                     continue;
                 }
-                //noinspection unchecked
+                // noinspection unchecked
                 this.addChunks[i] = new WritableLongChunk[addChunks[i].length];
                 for (int j = 0; j < addChunks[i].length; j++) {
                     this.addChunks[i][j] = addChunks[i][j].asWritableLongChunk();
                 }
             }
-            //noinspection unchecked
+            // noinspection unchecked
             this.modChunks = new WritableLongChunk[modChunks.length][];
             for (int i = 0; i < modChunks.length; i++) {
                 if (modChunks[i] == null) {
                     continue;
                 }
-                //noinspection unchecked
+                // noinspection unchecked
                 this.modChunks[i] = new WritableLongChunk[modChunks[i].length];
                 for (int j = 0; j < modChunks[i].length; j++) {
                     this.modChunks[i][j] = modChunks[i][j].asWritableLongChunk();
@@ -71,6 +71,8 @@ public class LongBarrageCopyKernel {
 
         final LongBarrageCopyKernelContext longContext = (LongBarrageCopyKernelContext) context;
         final int deltaChunkSize = longContext.deltaChunkSize();
+        final WritableLongChunk<Values>[][] addChunks = longContext.addChunks;
+        final WritableLongChunk<Values>[][] modChunks = longContext.modChunks;
 
         for (int pos = 0; pos < mapping.length; ++pos) {
             final long encoded = mapping[pos];
@@ -79,19 +81,17 @@ public class LongBarrageCopyKernel {
                     (int) ((encoded >>> BarrageCopyKernel.DELTA_INDEX_SHIFT) & BarrageCopyKernel.DELTA_INDEX_MASK);
             final long srcPos = encoded & BarrageCopyKernel.DELTA_POSITION_MASK;
 
-            final WritableChunk<Values>[] srcChunks = fromMods
-                    ? longContext.modChunks[deltaIdx]
-                    : longContext.addChunks[deltaIdx];
+            final WritableLongChunk<Values>[] srcChunks = fromMods ? modChunks[deltaIdx] : addChunks[deltaIdx];
             final int srcChunkIdx = (int) (srcPos / deltaChunkSize);
             final int srcOff = (int) (srcPos % deltaChunkSize);
-            dest.set(pos, srcChunks[srcChunkIdx].asLongChunk().get(srcOff));
+            dest.set(pos, srcChunks[srcChunkIdx].get(srcOff));
         }
     }
 
     /**
-     * Instance of the LongBarrageCopyKernel that delegates to static methods.
+     * Implementation of the LongBarrageCopyKernel that delegates to static methods.
      */
-    private static class LongBarrageCopyKernelInstance implements BarrageCopyKernel {
+    private static class LongBarrageCopyKernelImpl implements BarrageCopyKernel {
         @Override
         public BarrageCopyKernelContext makeContext(WritableChunk<Values>[][] addChunks,
                 WritableChunk<Values>[][] modChunks, int deltaChunkSize) {
@@ -104,5 +104,5 @@ public class LongBarrageCopyKernel {
         }
     }
 
-    static final BarrageCopyKernel INSTANCE = new LongBarrageCopyKernel.LongBarrageCopyKernelInstance();
+    static final BarrageCopyKernel INSTANCE = new LongBarrageCopyKernelImpl();
 }

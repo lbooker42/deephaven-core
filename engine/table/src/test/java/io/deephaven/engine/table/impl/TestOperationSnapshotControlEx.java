@@ -10,6 +10,7 @@ import io.deephaven.engine.table.impl.select.DynamicWhereFilter;
 import io.deephaven.engine.table.impl.select.MatchPairFactory;
 import io.deephaven.engine.table.MatchOptions;
 import io.deephaven.engine.table.impl.select.MatchFilter;
+import io.deephaven.engine.table.Table;
 import io.deephaven.engine.table.impl.select.WhereFilter;
 import io.deephaven.engine.testutil.ControlledUpdateGraph;
 import io.deephaven.engine.testutil.TstUtils;
@@ -17,17 +18,28 @@ import io.deephaven.engine.testutil.junit4.EngineCleanup;
 import io.deephaven.engine.updategraph.LogicalClock;
 import io.deephaven.engine.updategraph.NotificationQueue;
 import io.deephaven.engine.updategraph.UpdateGraph;
+import io.deephaven.engine.util.TableTools;
+import io.deephaven.util.SafeCloseable;
+import org.apache.commons.lang3.mutable.MutableObject;
 import org.junit.Rule;
 import org.junit.Test;
 
+import static io.deephaven.engine.testutil.TstUtils.assertTableEquals;
 import static io.deephaven.engine.testutil.TstUtils.i;
 import static io.deephaven.engine.util.TableTools.intCol;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Tests for the way {@link OperationSnapshotControlEx} distinguishes {@link NotificationAwareDependency notification
@@ -48,9 +60,12 @@ public class TestOperationSnapshotControlEx {
 
         long recordedStep = NotificationStepReceiver.NULL_NOTIFICATION_STEP;
 
+        /** Whether this dependency reports itself satisfied; never, unless a test says otherwise. */
+        boolean satisfied = false;
+
         @Override
         public boolean satisfied(final long step) {
-            return false;
+            return satisfied;
         }
 
         @Override
@@ -280,5 +295,128 @@ public class TestOperationSnapshotControlEx {
 
         assertTrue(dependencies.contains(dynamicFilter));
         assertEquals(1, dependencies.stream().filter(NotificationAwareDependency.class::isInstance).count());
+    }
+
+    private static QueryTable staticSource() {
+        return TstUtils.testTable(i(0).toTracking(), intCol("X", 1));
+    }
+
+    /**
+     * A static source is always satisfied, so it can never make the control wait. Extras that are all unsatisfied and
+     * have not changed on this step can be read with previous values: nothing has moved yet, so previous and current
+     * agree, and any extra that does move during the read is caught by {@link NotificationAwareDependency}.
+     */
+    @Test
+    public void testStaticSourceUsesPreviousValuesWhenNoExtraIsSatisfied() {
+        final QueryTable source = staticSource();
+        final TestAwareDependency first = new TestAwareDependency();
+        final TestAwareDependency second = new TestAwareDependency();
+        final OperationSnapshotControlEx control = new OperationSnapshotControlEx(source, first, second);
+
+        final ControlledUpdateGraph updateGraph = ExecutionContext.getContext().getUpdateGraph().cast();
+        updateGraph.startCycleForUnitTests(false);
+        try {
+            final long clockValue = updateGraph.clock().currentValue();
+            assertEquals(Boolean.TRUE, control.usePreviousValues(clockValue));
+            assertTrue(control.snapshotConsistent(clockValue, true));
+        } finally {
+            updateGraph.markSourcesRefreshedForUnitTests();
+            updateGraph.completeCycleForUnitTests();
+        }
+    }
+
+    /**
+     * Previous values are only consistent while <em>no</em> extra has been satisfied on the step. Once an aware extra
+     * has completed a change on this step, its state is current-only, so a previous-values read of the other extras can
+     * never be combined with it: the control's own completion check rejects every such attempt. Deciding "use previous
+     * values" here is therefore a decision that cannot succeed; the control must instead wait for the unsatisfied
+     * extras, as it does for a refreshing source, and then read current values.
+     */
+    @Test
+    public void testStaticSourceWaitsWhenSomeExtrasAreSatisfied() throws Exception {
+        final QueryTable source = staticSource();
+        final TestAwareDependency completed = new TestAwareDependency();
+        final TestAwareDependency pending = new TestAwareDependency();
+        final OperationSnapshotControlEx control = new OperationSnapshotControlEx(source, completed, pending);
+
+        final ControlledUpdateGraph updateGraph = ExecutionContext.getContext().getUpdateGraph().cast();
+        final ExecutorService pool = Executors.newSingleThreadExecutor();
+        updateGraph.startCycleForUnitTests(false);
+        try {
+            final long clockValue = updateGraph.clock().currentValue();
+            final long step = LogicalClock.getStep(clockValue);
+            completed.satisfied = true;
+            completed.recordedStep = step;
+
+            // Whatever the control decides, it must not be to use previous values: it would reject them itself.
+            final Future<Boolean> decision = pool.submit(() -> control.usePreviousValues(clockValue));
+            try {
+                final Boolean early = decision.get(500, TimeUnit.MILLISECONDS);
+                assertFalse("previous values cannot be consistent once an extra has changed on this step",
+                        Boolean.TRUE.equals(early));
+                fail("expected the control to wait for the pending extra, but it decided " + early);
+            } catch (TimeoutException expected) {
+                // Waiting for the pending extra, as it should.
+            }
+
+            // Satisfy the pending extra and let the wait notification fire; current values are then consistent.
+            pending.satisfied = true;
+            final long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (!decision.isDone()) {
+                if (System.nanoTime() > deadlineNanos) {
+                    fail("the control did not resume once every extra was satisfied");
+                }
+                if (!updateGraph.flushOneNotificationForUnitTests()) {
+                    // noinspection BusyWait
+                    Thread.sleep(1);
+                }
+            }
+            assertEquals(Boolean.FALSE, decision.get());
+            assertTrue(control.snapshotConsistent(clockValue, false));
+        } finally {
+            pool.shutdownNow();
+            updateGraph.markSourcesRefreshedForUnitTests();
+            updateGraph.completeCycleForUnitTests();
+        }
+    }
+
+    /**
+     * The same static source with an unsatisfied set filter, but on an update graph thread, where nothing can be waited
+     * for and previous values are never permitted: {@link ConstructSnapshot} asserts that a locked snapshot requests
+     * current values. A listener or update source that filters a static table by a set table which has not yet been
+     * processed on this step must still get a correct result, not an assertion failure. Only a dependency that orders
+     * this work after the set listener can achieve that on an update thread.
+     */
+    @Test
+    public void testStaticSourceWithUnsatisfiedSetFilterOnUpdateThread() {
+        final ExecutionContext context = ExecutionContext.getContext();
+        final ControlledUpdateGraph updateGraph = context.getUpdateGraph().cast();
+        final QueryTable source = TstUtils.testTable(i(2, 4, 6).toTracking(), intCol("Z", 1, 2, 3));
+        final QueryTable setTable = TstUtils.testRefreshingTable(i(0).toTracking(), intCol("Z", 1));
+        final DynamicWhereFilter filter =
+                new DynamicWhereFilter(setTable, true, MatchPairFactory.getExpressions("Z"));
+
+        final MutableObject<Throwable> failure = new MutableObject<>();
+        final MutableObject<Table> result = new MutableObject<>();
+        updateGraph.startCycleForUnitTests(false);
+        try {
+            assertFalse(filter.satisfied(updateGraph.clock().currentStep()));
+            updateGraph.refreshUpdateSourceForUnitTests(() -> {
+                assertTrue(updateGraph.currentThreadProcessesUpdates());
+                try (final SafeCloseable ignored = context.open()) {
+                    result.setValue(source.where(filter));
+                } catch (Throwable t) {
+                    failure.setValue(t);
+                }
+            });
+        } finally {
+            updateGraph.markSourcesRefreshedForUnitTests();
+            updateGraph.completeCycleForUnitTests();
+        }
+        if (failure.getValue() != null) {
+            throw new AssertionError("where on an update thread failed: " + failure.getValue(), failure.getValue());
+        }
+        assertNotNull(result.getValue());
+        assertTableEquals(TableTools.newTable(intCol("Z", 1)), result.getValue());
     }
 }

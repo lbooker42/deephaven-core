@@ -23,7 +23,9 @@ import io.deephaven.engine.table.impl.remote.ConstructSnapshot;
 import io.deephaven.engine.table.impl.select.DynamicWhereFilter;
 import io.deephaven.engine.table.impl.select.MatchPairFactory;
 import io.deephaven.engine.testutil.TstUtils;
+import io.deephaven.engine.table.TableUpdate;
 import io.deephaven.engine.table.impl.select.WhereFilter;
+import org.apache.commons.lang3.mutable.MutableObject;
 import io.deephaven.engine.table.impl.sources.regioned.RegionedTableComponentFactoryImpl;
 import io.deephaven.engine.testutil.StepClock;
 import io.deephaven.engine.testutil.filters.ReindexingRowSetCapturingFilter;
@@ -1049,6 +1051,67 @@ public class TestPartitionAwareSourceTableNoMocks {
         updateGraph.markSourcesRefreshedForUnitTests();
         updateGraph.getDelegate().completeCycleForUnitTests();
 
+        assertFalse(coalesced.isFailed());
+        assertEquals(2, coalesced.size());
+    }
+
+    /**
+     * The same discovery as {@link #testRefreshingPartitioningFilterAcrossLocationDiscovery()}, but with the location
+     * poller refreshed on the simulated update graph thread, which is where {@code refreshSources} runs in production.
+     * That thread can neither wait for the set listener nor use previous values, so the {@code where} inside
+     * {@code filterLocationKeys} has no consistent way to read a set filter whose listener has not yet run on this
+     * step. The discovery must nonetheless complete with the new location included, since it is in the set.
+     * <p>
+     * {@link CapturingUpdateGraph#refreshSources()} runs on the calling thread, so the test-thread variant above does
+     * not exercise this path.
+     */
+    @Test(timeout = 60_000)
+    public void testRefreshingPartitioningFilterAcrossLocationDiscoveryOnUpdateThread() {
+        try (final SafeCloseable ignoredContext = updateGraph.getContext().open()) {
+            refreshingPartitioningFilterAcrossLocationDiscoveryOnUpdateThread();
+        }
+    }
+
+    private void refreshingPartitioningFilterAcrossLocationDiscoveryOnUpdateThread() {
+        final PartitionAwareSourceTableTestUtils.TestTDS tds = new PartitionAwareSourceTableTestUtils.TestTDS();
+        final PartitionAwareSourceTableTestUtils.TableLocationProviderImpl locationProvider =
+                locationProvider(tds, "A", "B");
+        final QueryTable setTable = TstUtils.testRefreshingTable(i(0, 1).toTracking(),
+                stringCol("partition", "A", "C"));
+
+        final PartitionAwareSourceTable filteredSource =
+                filteredPartitionedSource(locationProvider, "refreshingDiscoveryOnUpdateThread",
+                        partitionFilter(setTable));
+        final Table coalesced = filteredSource.coalesce();
+        assertEquals(1, coalesced.size());
+
+        // Capture the cause if the source table fails, so that the failure is diagnosable.
+        final MutableObject<Throwable> tableFailure = new MutableObject<>();
+        coalesced.addUpdateListener(new InstrumentedTableUpdateListenerAdapter("capture", coalesced, false) {
+            @Override
+            public void onUpdate(final TableUpdate upstream) {}
+
+            @Override
+            public void onFailureInternal(final Throwable originalException, final Entry sourceEntry) {
+                tableFailure.setValue(originalException);
+            }
+        });
+
+        updateGraph.getDelegate().startCycleForUnitTests(false);
+        locationProvider.appendLocation(new PartitionAwareSourceTableTestUtils.TableLocationKeyImpl("C"));
+        updateGraph.getDelegate().refreshUpdateSourceForUnitTests(() -> {
+            assertTrue(updateGraph.currentThreadProcessesUpdates());
+            try (final SafeCloseable ignored = updateGraph.getContext().open()) {
+                updateGraph.refreshSources();
+            }
+        });
+        updateGraph.markSourcesRefreshedForUnitTests();
+        updateGraph.getDelegate().completeCycleForUnitTests();
+
+        if (tableFailure.getValue() != null) {
+            throw new AssertionError("location discovery failed on the update thread: " + tableFailure.getValue(),
+                    tableFailure.getValue());
+        }
         assertFalse(coalesced.isFailed());
         assertEquals(2, coalesced.size());
     }

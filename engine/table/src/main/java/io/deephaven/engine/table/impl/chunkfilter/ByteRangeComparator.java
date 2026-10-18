@@ -98,18 +98,18 @@ public class ByteRangeComparator {
     /**
      * Passes the values from {@code lower}, inclusive: the ranges that leave out no value at the top.
      */
-    private final static class ByteAtLeastFilter extends ByteChunkFilter {
+    private final static class ByteGEQFilter extends ByteChunkFilter {
         private final byte lower;
 
-        private ByteAtLeastFilter(final byte lower) {
+        private ByteGEQFilter(final byte lower) {
             this.lower = lower;
         }
 
         @Override
         public boolean matches(final byte value) {
-            // region atLeastMatches
+            // region geqMatches
             return value >= lower;
-            // endregion atLeastMatches
+            // endregion geqMatches
         }
 
         // Identical code for all ByteChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -161,18 +161,18 @@ public class ByteRangeComparator {
     /**
      * Passes the values up to {@code upper}, inclusive, and null: the ranges that leave out no value at the bottom.
      */
-    private final static class ByteAtMostFilter extends ByteChunkFilter {
+    private final static class ByteLEQFilter extends ByteChunkFilter {
         private final byte upper;
 
-        private ByteAtMostFilter(final byte upper) {
+        private ByteLEQFilter(final byte upper) {
             this.upper = upper;
         }
 
         @Override
         public boolean matches(final byte value) {
-            // region atMostMatches
+            // region leqMatches
             return value <= upper;
-            // endregion atMostMatches
+            // endregion leqMatches
         }
 
         // Identical code for all ByteChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -243,10 +243,10 @@ public class ByteRangeComparator {
         }
         // a bound that leaves out no value needs no comparison
         if (lower == QueryConstants.NULL_BYTE) {
-            return upper == QueryConstants.MAX_BYTE ? ChunkFilter.TRUE_FILTER_INSTANCE : new ByteAtMostFilter(upper);
+            return upper == QueryConstants.MAX_BYTE ? ChunkFilter.TRUE_FILTER_INSTANCE : new ByteLEQFilter(upper);
         }
         if (upper == QueryConstants.MAX_BYTE) {
-            return new ByteAtLeastFilter(lower);
+            return new ByteGEQFilter(lower);
         }
         return new ByteBetweenFilter(lower, upper);
     }

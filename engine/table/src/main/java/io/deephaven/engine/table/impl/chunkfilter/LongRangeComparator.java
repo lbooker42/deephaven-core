@@ -98,18 +98,18 @@ public class LongRangeComparator {
     /**
      * Passes the values from {@code lower}, inclusive: the ranges that leave out no value at the top.
      */
-    private final static class LongAtLeastFilter extends LongChunkFilter {
+    private final static class LongGEQFilter extends LongChunkFilter {
         private final long lower;
 
-        private LongAtLeastFilter(final long lower) {
+        private LongGEQFilter(final long lower) {
             this.lower = lower;
         }
 
         @Override
         public boolean matches(final long value) {
-            // region atLeastMatches
+            // region geqMatches
             return value >= lower;
-            // endregion atLeastMatches
+            // endregion geqMatches
         }
 
         // Identical code for all LongChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -161,18 +161,18 @@ public class LongRangeComparator {
     /**
      * Passes the values up to {@code upper}, inclusive, and null: the ranges that leave out no value at the bottom.
      */
-    private final static class LongAtMostFilter extends LongChunkFilter {
+    private final static class LongLEQFilter extends LongChunkFilter {
         private final long upper;
 
-        private LongAtMostFilter(final long upper) {
+        private LongLEQFilter(final long upper) {
             this.upper = upper;
         }
 
         @Override
         public boolean matches(final long value) {
-            // region atMostMatches
+            // region leqMatches
             return value <= upper;
-            // endregion atMostMatches
+            // endregion leqMatches
         }
 
         // Identical code for all LongChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -243,10 +243,10 @@ public class LongRangeComparator {
         }
         // a bound that leaves out no value needs no comparison
         if (lower == QueryConstants.NULL_LONG) {
-            return upper == QueryConstants.MAX_LONG ? ChunkFilter.TRUE_FILTER_INSTANCE : new LongAtMostFilter(upper);
+            return upper == QueryConstants.MAX_LONG ? ChunkFilter.TRUE_FILTER_INSTANCE : new LongLEQFilter(upper);
         }
         if (upper == QueryConstants.MAX_LONG) {
-            return new LongAtLeastFilter(lower);
+            return new LongGEQFilter(lower);
         }
         return new LongBetweenFilter(lower, upper);
     }

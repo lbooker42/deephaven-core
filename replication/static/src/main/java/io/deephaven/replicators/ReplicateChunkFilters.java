@@ -105,9 +105,9 @@ public class ReplicateChunkFilters {
             throws IOException {
         final File comparatorFile = new File(comparatorPath);
         List<String> lines = FileUtils.readLines(comparatorFile, Charset.defaultCharset());
-        lines = ReplicationUtils.replaceRegion(lines, "atLeastMatches",
+        lines = ReplicationUtils.replaceRegion(lines, "geqMatches",
                 List.of("            return value >= lower;"));
-        lines = ReplicationUtils.replaceRegion(lines, "atMostMatches",
+        lines = ReplicationUtils.replaceRegion(lines, "leqMatches",
                 List.of("            return value <= upper;"));
         if (replacements.length > 0) {
             lines = ReplicationUtils.globalReplacements(lines, replacements);

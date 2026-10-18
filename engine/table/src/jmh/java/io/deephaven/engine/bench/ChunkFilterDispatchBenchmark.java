@@ -117,7 +117,7 @@ public class ChunkFilterDispatchBenchmark {
 
         if (pollute) {
             final List<ChunkFilter> others = List.of(
-                    // the other range filter classes: at most, at least, and between other bounds
+                    // the other range filter classes: LEQ, GEQ, and between other bounds
                     IntRangeComparator.makeIntFilter(QueryConstants.NULL_INT, 511, true, true),
                     IntRangeComparator.makeIntFilter(512, QueryConstants.MAX_INT, true, true),
                     IntRangeComparator.makeIntFilter(0, 511, false, false),

@@ -98,18 +98,18 @@ public class IntRangeComparator {
     /**
      * Passes the values from {@code lower}, inclusive: the ranges that leave out no value at the top.
      */
-    private final static class IntAtLeastFilter extends IntChunkFilter {
+    private final static class IntGEQFilter extends IntChunkFilter {
         private final int lower;
 
-        private IntAtLeastFilter(final int lower) {
+        private IntGEQFilter(final int lower) {
             this.lower = lower;
         }
 
         @Override
         public boolean matches(final int value) {
-            // region atLeastMatches
+            // region geqMatches
             return value >= lower;
-            // endregion atLeastMatches
+            // endregion geqMatches
         }
 
         // Identical code for all IntChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -161,18 +161,18 @@ public class IntRangeComparator {
     /**
      * Passes the values up to {@code upper}, inclusive, and null: the ranges that leave out no value at the bottom.
      */
-    private final static class IntAtMostFilter extends IntChunkFilter {
+    private final static class IntLEQFilter extends IntChunkFilter {
         private final int upper;
 
-        private IntAtMostFilter(final int upper) {
+        private IntLEQFilter(final int upper) {
             this.upper = upper;
         }
 
         @Override
         public boolean matches(final int value) {
-            // region atMostMatches
+            // region leqMatches
             return value <= upper;
-            // endregion atMostMatches
+            // endregion leqMatches
         }
 
         // Identical code for all IntChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -243,10 +243,10 @@ public class IntRangeComparator {
         }
         // a bound that leaves out no value needs no comparison
         if (lower == QueryConstants.NULL_INT) {
-            return upper == QueryConstants.MAX_INT ? ChunkFilter.TRUE_FILTER_INSTANCE : new IntAtMostFilter(upper);
+            return upper == QueryConstants.MAX_INT ? ChunkFilter.TRUE_FILTER_INSTANCE : new IntLEQFilter(upper);
         }
         if (upper == QueryConstants.MAX_INT) {
-            return new IntAtLeastFilter(lower);
+            return new IntGEQFilter(lower);
         }
         return new IntBetweenFilter(lower, upper);
     }

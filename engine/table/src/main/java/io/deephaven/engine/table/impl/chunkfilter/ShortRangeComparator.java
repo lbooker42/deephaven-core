@@ -98,18 +98,18 @@ public class ShortRangeComparator {
     /**
      * Passes the values from {@code lower}, inclusive: the ranges that leave out no value at the top.
      */
-    private final static class ShortAtLeastFilter extends ShortChunkFilter {
+    private final static class ShortGEQFilter extends ShortChunkFilter {
         private final short lower;
 
-        private ShortAtLeastFilter(final short lower) {
+        private ShortGEQFilter(final short lower) {
             this.lower = lower;
         }
 
         @Override
         public boolean matches(final short value) {
-            // region atLeastMatches
+            // region geqMatches
             return value >= lower;
-            // endregion atLeastMatches
+            // endregion geqMatches
         }
 
         // Identical code for all ShortChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -161,18 +161,18 @@ public class ShortRangeComparator {
     /**
      * Passes the values up to {@code upper}, inclusive, and null: the ranges that leave out no value at the bottom.
      */
-    private final static class ShortAtMostFilter extends ShortChunkFilter {
+    private final static class ShortLEQFilter extends ShortChunkFilter {
         private final short upper;
 
-        private ShortAtMostFilter(final short upper) {
+        private ShortLEQFilter(final short upper) {
             this.upper = upper;
         }
 
         @Override
         public boolean matches(final short value) {
-            // region atMostMatches
+            // region leqMatches
             return value <= upper;
-            // endregion atMostMatches
+            // endregion leqMatches
         }
 
         // Identical code for all ShortChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -243,10 +243,10 @@ public class ShortRangeComparator {
         }
         // a bound that leaves out no value needs no comparison
         if (lower == QueryConstants.NULL_SHORT) {
-            return upper == QueryConstants.MAX_SHORT ? ChunkFilter.TRUE_FILTER_INSTANCE : new ShortAtMostFilter(upper);
+            return upper == QueryConstants.MAX_SHORT ? ChunkFilter.TRUE_FILTER_INSTANCE : new ShortLEQFilter(upper);
         }
         if (upper == QueryConstants.MAX_SHORT) {
-            return new ShortAtLeastFilter(lower);
+            return new ShortGEQFilter(lower);
         }
         return new ShortBetweenFilter(lower, upper);
     }

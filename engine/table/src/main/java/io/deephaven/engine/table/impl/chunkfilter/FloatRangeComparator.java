@@ -108,10 +108,10 @@ public class FloatRangeComparator {
     /**
      * Passes the values from {@code lower}, inclusive, as IEEE 754 compares them: never NaN.
      */
-    private final static class FloatAtLeastFilter extends FloatChunkFilter {
+    private final static class FloatGEQFilter extends FloatChunkFilter {
         private final float lower;
 
-        private FloatAtLeastFilter(final float lower) {
+        private FloatGEQFilter(final float lower) {
             this.lower = lower;
         }
 
@@ -169,10 +169,10 @@ public class FloatRangeComparator {
     /**
      * Passes the values from {@code lower}, inclusive, as IEEE 754 compares them, and NaN.
      */
-    private final static class FloatAtLeastOrNaNFilter extends FloatChunkFilter {
+    private final static class FloatGEQOrNaNFilter extends FloatChunkFilter {
         private final float lower;
 
-        private FloatAtLeastOrNaNFilter(final float lower) {
+        private FloatGEQOrNaNFilter(final float lower) {
             this.lower = lower;
         }
 
@@ -231,10 +231,10 @@ public class FloatRangeComparator {
     /**
      * Passes the values up to {@code upper}, inclusive, as IEEE 754 compares them: never NaN.
      */
-    private final static class FloatAtMostFilter extends FloatChunkFilter {
+    private final static class FloatLEQFilter extends FloatChunkFilter {
         private final float upper;
 
-        private FloatAtMostFilter(final float upper) {
+        private FloatLEQFilter(final float upper) {
             this.upper = upper;
         }
 
@@ -414,13 +414,13 @@ public class FloatRangeComparator {
         }
 
         if (ieeeLower == Float.NEGATIVE_INFINITY) {
-            return nanPasses ? ChunkFilter.TRUE_FILTER_INSTANCE : new FloatAtMostFilter(ieeeUpper);
+            return nanPasses ? ChunkFilter.TRUE_FILTER_INSTANCE : new FloatLEQFilter(ieeeUpper);
         }
         if (nanPasses) {
-            return new FloatAtLeastOrNaNFilter(ieeeLower);
+            return new FloatGEQOrNaNFilter(ieeeLower);
         }
         if (ieeeUpper == Float.POSITIVE_INFINITY) {
-            return new FloatAtLeastFilter(ieeeLower);
+            return new FloatGEQFilter(ieeeLower);
         }
         // an exclusive bound next to the other can leave no value between them
         if (ieeeLower > ieeeUpper) {

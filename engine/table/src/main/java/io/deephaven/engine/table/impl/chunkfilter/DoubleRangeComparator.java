@@ -112,10 +112,10 @@ public class DoubleRangeComparator {
     /**
      * Passes the values from {@code lower}, inclusive, as IEEE 754 compares them: never NaN.
      */
-    private final static class DoubleAtLeastFilter extends DoubleChunkFilter {
+    private final static class DoubleGEQFilter extends DoubleChunkFilter {
         private final double lower;
 
-        private DoubleAtLeastFilter(final double lower) {
+        private DoubleGEQFilter(final double lower) {
             this.lower = lower;
         }
 
@@ -173,10 +173,10 @@ public class DoubleRangeComparator {
     /**
      * Passes the values from {@code lower}, inclusive, as IEEE 754 compares them, and NaN.
      */
-    private final static class DoubleAtLeastOrNaNFilter extends DoubleChunkFilter {
+    private final static class DoubleGEQOrNaNFilter extends DoubleChunkFilter {
         private final double lower;
 
-        private DoubleAtLeastOrNaNFilter(final double lower) {
+        private DoubleGEQOrNaNFilter(final double lower) {
             this.lower = lower;
         }
 
@@ -235,10 +235,10 @@ public class DoubleRangeComparator {
     /**
      * Passes the values up to {@code upper}, inclusive, as IEEE 754 compares them: never NaN.
      */
-    private final static class DoubleAtMostFilter extends DoubleChunkFilter {
+    private final static class DoubleLEQFilter extends DoubleChunkFilter {
         private final double upper;
 
-        private DoubleAtMostFilter(final double upper) {
+        private DoubleLEQFilter(final double upper) {
             this.upper = upper;
         }
 
@@ -418,13 +418,13 @@ public class DoubleRangeComparator {
         }
 
         if (ieeeLower == Double.NEGATIVE_INFINITY) {
-            return nanPasses ? ChunkFilter.TRUE_FILTER_INSTANCE : new DoubleAtMostFilter(ieeeUpper);
+            return nanPasses ? ChunkFilter.TRUE_FILTER_INSTANCE : new DoubleLEQFilter(ieeeUpper);
         }
         if (nanPasses) {
-            return new DoubleAtLeastOrNaNFilter(ieeeLower);
+            return new DoubleGEQOrNaNFilter(ieeeLower);
         }
         if (ieeeUpper == Double.POSITIVE_INFINITY) {
-            return new DoubleAtLeastFilter(ieeeLower);
+            return new DoubleGEQFilter(ieeeLower);
         }
         // an exclusive bound next to the other can leave no value between them
         if (ieeeLower > ieeeUpper) {

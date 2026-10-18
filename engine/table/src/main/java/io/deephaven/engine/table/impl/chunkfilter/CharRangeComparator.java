@@ -94,20 +94,20 @@ public class CharRangeComparator {
     /**
      * Passes the values from {@code lower}, inclusive: the ranges that leave out no value at the top.
      */
-    private final static class CharAtLeastFilter extends CharChunkFilter {
+    private final static class CharGEQFilter extends CharChunkFilter {
         private final char lower;
 
-        private CharAtLeastFilter(final char lower) {
+        private CharGEQFilter(final char lower) {
             this.lower = lower;
         }
 
         @Override
         public boolean matches(final char value) {
-            // region atLeastMatches
+            // region geqMatches
             // adding one moves NULL_CHAR, which CharComparisons orders first but which is numerically the greatest
             // char, to zero, and every other value up one, which puts them in the order of CharComparisons
             return (char) (value + 1) > lower;
-            // endregion atLeastMatches
+            // endregion geqMatches
         }
 
         // Identical code for all CharChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -159,20 +159,20 @@ public class CharRangeComparator {
     /**
      * Passes the values up to {@code upper}, inclusive, and null: the ranges that leave out no value at the bottom.
      */
-    private final static class CharAtMostFilter extends CharChunkFilter {
+    private final static class CharLEQFilter extends CharChunkFilter {
         private final char upper;
 
-        private CharAtMostFilter(final char upper) {
+        private CharLEQFilter(final char upper) {
             this.upper = upper;
         }
 
         @Override
         public boolean matches(final char value) {
-            // region atMostMatches
+            // region leqMatches
             // adding one moves NULL_CHAR, which CharComparisons orders first but which is numerically the greatest
             // char, to zero, and every other value up one, which puts them in the order of CharComparisons
             return (char) (value + 1) <= (char) (upper + 1);
-            // endregion atMostMatches
+            // endregion leqMatches
         }
 
         // Identical code for all CharChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -243,10 +243,10 @@ public class CharRangeComparator {
         }
         // a bound that leaves out no value needs no comparison
         if (lower == QueryConstants.NULL_CHAR) {
-            return upper == QueryConstants.MAX_CHAR ? ChunkFilter.TRUE_FILTER_INSTANCE : new CharAtMostFilter(upper);
+            return upper == QueryConstants.MAX_CHAR ? ChunkFilter.TRUE_FILTER_INSTANCE : new CharLEQFilter(upper);
         }
         if (upper == QueryConstants.MAX_CHAR) {
-            return new CharAtLeastFilter(lower);
+            return new CharGEQFilter(lower);
         }
         return new CharBetweenFilter(lower, upper);
     }

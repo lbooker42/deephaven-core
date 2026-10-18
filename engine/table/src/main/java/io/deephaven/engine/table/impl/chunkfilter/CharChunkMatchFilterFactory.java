@@ -7,8 +7,6 @@ import io.deephaven.chunk.*;
 import io.deephaven.chunk.attributes.Values;
 import io.deephaven.engine.rowset.chunkattributes.OrderedRowKeys;
 import io.deephaven.engine.table.MatchOptions;
-import it.unimi.dsi.fastutil.chars.CharOpenHashSet;
-import it.unimi.dsi.fastutil.chars.CharSet;
 
 /**
  * Creates chunk filters for char values.
@@ -16,7 +14,9 @@ import it.unimi.dsi.fastutil.chars.CharSet;
  * The strategy is that for one, two, or three values we have specialized classes that will do the appropriate simple
  * equality check.
  * <p>
- * For more values, we use a trove set and check contains for each value in the chunk.
+ * For four or more values, {@link #makeFilter} chooses a structure that suits the type and the values. The 8 and 16 bit
+ * types use a bitmap with a bit for every value of the type. The int and long factories use the structures in
+ * {@code IntMultiValueChunkFilters} and {@code LongMultiValueChunkFilters} instead, which are maintained by hand.
  * <p>
  * Each filter carries its own copy of the {@link CharChunkFilter} loops, so that its {@code matches} call is never a
  * virtual call shared with other filters.
@@ -35,7 +35,6 @@ public class CharChunkMatchFilterFactory {
             if (values.length == 3) {
                 return new InverseThreeValueCharChunkFilter(values[0], values[1], values[2]);
             }
-            return new InverseMultiValueCharChunkFilter(values);
         } else {
             if (values.length == 1) {
                 return new SingleValueCharChunkFilter(values[0]);
@@ -46,8 +45,12 @@ public class CharChunkMatchFilterFactory {
             if (values.length == 3) {
                 return new ThreeValueCharChunkFilter(values[0], values[1], values[2]);
             }
-            return new MultiValueCharChunkFilter(values);
         }
+        // region makeMultiValueFilter
+        return matchOptions.inverted()
+                ? new InverseBitmapCharChunkFilter(values)
+                : new BitmapCharChunkFilter(values);
+        // endregion makeMultiValueFilter
     }
 
     private final static class SingleValueCharChunkFilter extends CharChunkFilter {
@@ -446,16 +449,35 @@ public class CharChunkMatchFilterFactory {
         }
     }
 
-    private final static class MultiValueCharChunkFilter extends CharChunkFilter {
-        private final CharSet values;
+    // region multiValueFilters
+    /**
+     * @return a bitmap with a bit for every char value, set for each of {@code values}; null is one of the values a
+     *         char can hold, so it needs no special case
+     */
+    private static long[] makeBitmap(final char... values) {
+        final long[] bitmap = new long[(Character.MAX_VALUE - Character.MIN_VALUE + 1) >>> 6];
+        for (final char value : values) {
+            final int index = value - Character.MIN_VALUE;
+            bitmap[index >>> 6] |= 1L << index;
+        }
+        return bitmap;
+    }
 
-        private MultiValueCharChunkFilter(char... values) {
-            this.values = new CharOpenHashSet(values);
+    private static boolean bitmapContains(final long[] bitmap, final char value) {
+        final int index = value - Character.MIN_VALUE;
+        return (bitmap[index >>> 6] & (1L << index)) != 0;
+    }
+
+    private final static class BitmapCharChunkFilter extends CharChunkFilter {
+        private final long[] bitmap;
+
+        private BitmapCharChunkFilter(char... values) {
+            this.bitmap = makeBitmap(values);
         }
 
         @Override
         public boolean matches(char value) {
-            return this.values.contains(value);
+            return bitmapContains(bitmap, value);
         }
 
         // Identical code for all CharChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -510,16 +532,16 @@ public class CharChunkMatchFilterFactory {
         }
     }
 
-    private final static class InverseMultiValueCharChunkFilter extends CharChunkFilter {
-        private final CharSet values;
+    private final static class InverseBitmapCharChunkFilter extends CharChunkFilter {
+        private final long[] bitmap;
 
-        private InverseMultiValueCharChunkFilter(char... values) {
-            this.values = new CharOpenHashSet(values);
+        private InverseBitmapCharChunkFilter(char... values) {
+            this.bitmap = makeBitmap(values);
         }
 
         @Override
         public boolean matches(char value) {
-            return !this.values.contains(value);
+            return !bitmapContains(bitmap, value);
         }
 
         // Identical code for all CharChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -573,4 +595,5 @@ public class CharChunkMatchFilterFactory {
             return count;
         }
     }
+    // endregion multiValueFilters
 }

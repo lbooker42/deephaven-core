@@ -11,8 +11,6 @@ import io.deephaven.chunk.*;
 import io.deephaven.chunk.attributes.Values;
 import io.deephaven.engine.rowset.chunkattributes.OrderedRowKeys;
 import io.deephaven.engine.table.MatchOptions;
-import it.unimi.dsi.fastutil.shorts.ShortOpenHashSet;
-import it.unimi.dsi.fastutil.shorts.ShortSet;
 
 /**
  * Creates chunk filters for short values.
@@ -20,7 +18,9 @@ import it.unimi.dsi.fastutil.shorts.ShortSet;
  * The strategy is that for one, two, or three values we have specialized classes that will do the appropriate simple
  * equality check.
  * <p>
- * For more values, we use a trove set and check contains for each value in the chunk.
+ * For four or more values, {@link #makeFilter} chooses a structure that suits the type and the values. The 8 and 16 bit
+ * types use a bitmap with a bit for every value of the type. The int and long factories use the structures in
+ * {@code IntMultiValueChunkFilters} and {@code LongMultiValueChunkFilters} instead, which are maintained by hand.
  * <p>
  * Each filter carries its own copy of the {@link ShortChunkFilter} loops, so that its {@code matches} call is never a
  * virtual call shared with other filters.
@@ -39,7 +39,6 @@ public class ShortChunkMatchFilterFactory {
             if (values.length == 3) {
                 return new InverseThreeValueShortChunkFilter(values[0], values[1], values[2]);
             }
-            return new InverseMultiValueShortChunkFilter(values);
         } else {
             if (values.length == 1) {
                 return new SingleValueShortChunkFilter(values[0]);
@@ -50,8 +49,12 @@ public class ShortChunkMatchFilterFactory {
             if (values.length == 3) {
                 return new ThreeValueShortChunkFilter(values[0], values[1], values[2]);
             }
-            return new MultiValueShortChunkFilter(values);
         }
+        // region makeMultiValueFilter
+        return matchOptions.inverted()
+                ? new InverseBitmapShortChunkFilter(values)
+                : new BitmapShortChunkFilter(values);
+        // endregion makeMultiValueFilter
     }
 
     private final static class SingleValueShortChunkFilter extends ShortChunkFilter {
@@ -450,16 +453,35 @@ public class ShortChunkMatchFilterFactory {
         }
     }
 
-    private final static class MultiValueShortChunkFilter extends ShortChunkFilter {
-        private final ShortSet values;
+    // region multiValueFilters
+    /**
+     * @return a bitmap with a bit for every short value, set for each of {@code values}; null is one of the values a
+     *         short can hold, so it needs no special case
+     */
+    private static long[] makeBitmap(final short... values) {
+        final long[] bitmap = new long[(Short.MAX_VALUE - Short.MIN_VALUE + 1) >>> 6];
+        for (final short value : values) {
+            final int index = value - Short.MIN_VALUE;
+            bitmap[index >>> 6] |= 1L << index;
+        }
+        return bitmap;
+    }
 
-        private MultiValueShortChunkFilter(short... values) {
-            this.values = new ShortOpenHashSet(values);
+    private static boolean bitmapContains(final long[] bitmap, final short value) {
+        final int index = value - Short.MIN_VALUE;
+        return (bitmap[index >>> 6] & (1L << index)) != 0;
+    }
+
+    private final static class BitmapShortChunkFilter extends ShortChunkFilter {
+        private final long[] bitmap;
+
+        private BitmapShortChunkFilter(short... values) {
+            this.bitmap = makeBitmap(values);
         }
 
         @Override
         public boolean matches(short value) {
-            return this.values.contains(value);
+            return bitmapContains(bitmap, value);
         }
 
         // Identical code for all ShortChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -514,16 +536,16 @@ public class ShortChunkMatchFilterFactory {
         }
     }
 
-    private final static class InverseMultiValueShortChunkFilter extends ShortChunkFilter {
-        private final ShortSet values;
+    private final static class InverseBitmapShortChunkFilter extends ShortChunkFilter {
+        private final long[] bitmap;
 
-        private InverseMultiValueShortChunkFilter(short... values) {
-            this.values = new ShortOpenHashSet(values);
+        private InverseBitmapShortChunkFilter(short... values) {
+            this.bitmap = makeBitmap(values);
         }
 
         @Override
         public boolean matches(short value) {
-            return !this.values.contains(value);
+            return !bitmapContains(bitmap, value);
         }
 
         // Identical code for all ShortChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -577,4 +599,5 @@ public class ShortChunkMatchFilterFactory {
             return count;
         }
     }
+    // endregion multiValueFilters
 }

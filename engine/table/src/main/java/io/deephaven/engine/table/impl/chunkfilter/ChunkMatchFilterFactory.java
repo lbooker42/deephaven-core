@@ -57,12 +57,13 @@ public class ChunkMatchFilterFactory {
             final double[] doubleKeys = ArrayTypeUtils.getUnboxedDoubleArray(keys);
             return DoubleChunkMatchFilterFactory.makeFilter(matchOptions, doubleKeys);
         }
-        if (type == String.class && matchOptions.caseInsensitive()) {
-            return StringChunkMatchFilterFactory.makeCaseInsensitiveFilter(matchOptions, keys);
+        if (type == String.class) {
+            return matchOptions.caseInsensitive()
+                    ? StringChunkMatchFilterFactory.makeCaseInsensitiveFilter(matchOptions, keys)
+                    : StringChunkMatchFilterFactory.makeFilter(matchOptions, keys);
         }
         // TODO: we should do something nicer with booleans
         // TODO: we need to consider symbol tables
-        // TODO: we need to consider reinterpretation of DateTimes
         return ObjectChunkMatchFilterFactory.makeFilter(matchOptions, keys);
     }
 }

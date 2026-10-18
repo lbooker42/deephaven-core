@@ -10,10 +10,18 @@ package io.deephaven.engine.table.impl.chunkfilter;
 import io.deephaven.chunk.*;
 import io.deephaven.chunk.attributes.Values;
 import io.deephaven.engine.rowset.chunkattributes.OrderedRowKeys;
+import io.deephaven.util.QueryConstants;
 import io.deephaven.util.compare.IntComparisons;
 
 /**
- * Creates range filters for int values.
+ * Creates range filters for int values, which pass the values that {@link IntComparisons} orders between the bounds.
+ * <p>
+ * The factory turns an exclusive bound into the inclusive bound next to it, and returns
+ * {@link ChunkFilter#FALSE_FILTER_INSTANCE} for a range that holds no value and
+ * {@link ChunkFilter#TRUE_FILTER_INSTANCE} for one that leaves out none. A range that leaves out no value at one end is
+ * tested against the other bound alone. A range bounded at both ends is tested with one comparison too: a value is in
+ * range when its distance above the lower bound, as an unsigned number, is at most the distance from the lower bound to
+ * the upper.
  * <p>
  * Each filter carries its own copy of the {@link IntChunkFilter} loops, so that its {@code matches} call is never a
  * virtual call shared with other filters.
@@ -21,24 +29,150 @@ import io.deephaven.util.compare.IntComparisons;
 public class IntRangeComparator {
     private IntRangeComparator() {} // static use only
 
-    private abstract static class IntIntFilter extends IntChunkFilter {
-        final int lower;
-        final int upper;
+    /**
+     * Passes the values from {@code lower} to {@code upper}, both inclusive, in numeric order. The factory gives it no
+     * range that starts at NULL_INT, which numeric order puts last.
+     */
+    private final static class IntBetweenFilter extends IntChunkFilter {
+        // value - lower is at most upper - lower as unsigned numbers when value + offset is at most limit as signed
+        // ones, since adding Integer.MIN_VALUE to both sides turns the one comparison into the other
+        private final int offset;
+        private final int limit;
 
-        IntIntFilter(int lower, int upper) {
+        private IntBetweenFilter(final int lower, final int upper) {
+            offset = Integer.MIN_VALUE - lower;
+            limit = Integer.MIN_VALUE + (upper - lower);
+        }
+
+        @Override
+        public boolean matches(final int value) {
+            return value + offset <= limit;
+        }
+
+        // Identical code for all IntChunkFilter classes, replicated here to prevent megamorphism in the JVM
+        @Override
+        public void filter(
+                final Chunk<? extends Values> values,
+                final LongChunk<OrderedRowKeys> keys,
+                final WritableLongChunk<OrderedRowKeys> results) {
+            final IntChunk<? extends Values> intChunk = values.asIntChunk();
+            final int len = intChunk.size();
+
+            results.setSize(0);
+            for (int ii = 0; ii < len; ++ii) {
+                if (matches(intChunk.get(ii))) {
+                    results.add(keys.get(ii));
+                }
+            }
+        }
+
+        @Override
+        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
+            final IntChunk<? extends Values> intChunk = values.asIntChunk();
+            final int len = values.size();
+            int count = 0;
+            for (int ii = 0; ii < len; ++ii) {
+                final boolean newResult = matches(intChunk.get(ii));
+                results.set(ii, newResult);
+                // count every true value
+                count += newResult ? 1 : 0;
+            }
+            return count;
+        }
+
+        @Override
+        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
+            final IntChunk<? extends Values> intChunk = values.asIntChunk();
+            final int len = values.size();
+            int count = 0;
+            // matches is one comparison, which costs less than a branch on each earlier result
+            for (int ii = 0; ii < len; ++ii) {
+                final boolean newResult = results.get(ii) & matches(intChunk.get(ii));
+                results.set(ii, newResult);
+                count += newResult ? 1 : 0;
+            }
+            return count;
+        }
+    }
+
+    /**
+     * Passes the values from {@code lower}, inclusive: the ranges that leave out no value at the top.
+     */
+    private final static class IntAtLeastFilter extends IntChunkFilter {
+        private final int lower;
+
+        private IntAtLeastFilter(final int lower) {
             this.lower = lower;
+        }
+
+        @Override
+        public boolean matches(final int value) {
+            // region atLeastMatches
+            return value >= lower;
+            // endregion atLeastMatches
+        }
+
+        // Identical code for all IntChunkFilter classes, replicated here to prevent megamorphism in the JVM
+        @Override
+        public void filter(
+                final Chunk<? extends Values> values,
+                final LongChunk<OrderedRowKeys> keys,
+                final WritableLongChunk<OrderedRowKeys> results) {
+            final IntChunk<? extends Values> intChunk = values.asIntChunk();
+            final int len = intChunk.size();
+
+            results.setSize(0);
+            for (int ii = 0; ii < len; ++ii) {
+                if (matches(intChunk.get(ii))) {
+                    results.add(keys.get(ii));
+                }
+            }
+        }
+
+        @Override
+        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
+            final IntChunk<? extends Values> intChunk = values.asIntChunk();
+            final int len = values.size();
+            int count = 0;
+            for (int ii = 0; ii < len; ++ii) {
+                final boolean newResult = matches(intChunk.get(ii));
+                results.set(ii, newResult);
+                // count every true value
+                count += newResult ? 1 : 0;
+            }
+            return count;
+        }
+
+        @Override
+        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
+            final IntChunk<? extends Values> intChunk = values.asIntChunk();
+            final int len = values.size();
+            int count = 0;
+            // matches is one comparison, which costs less than a branch on each earlier result
+            for (int ii = 0; ii < len; ++ii) {
+                final boolean newResult = results.get(ii) & matches(intChunk.get(ii));
+                results.set(ii, newResult);
+                count += newResult ? 1 : 0;
+            }
+            return count;
+        }
+    }
+
+    /**
+     * Passes the values up to {@code upper}, inclusive, and null: the ranges that leave out no value at the bottom.
+     */
+    private final static class IntAtMostFilter extends IntChunkFilter {
+        private final int upper;
+
+        private IntAtMostFilter(final int upper) {
             this.upper = upper;
         }
-    }
-
-    private final static class IntIntInclusiveInclusiveFilter extends IntIntFilter {
-        private IntIntInclusiveInclusiveFilter(int lower, int upper) {
-            super(lower, upper);
-        }
 
         @Override
-        public boolean matches(int value) {
-            return IntComparisons.geq(value, lower) && IntComparisons.leq(value, upper);
+        public boolean matches(final int value) {
+            // region atMostMatches
+            return value <= upper;
+            // endregion atMostMatches
         }
 
         // Identical code for all IntChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -77,222 +211,43 @@ public class IntRangeComparator {
             final IntChunk<? extends Values> intChunk = values.asIntChunk();
             final int len = values.size();
             int count = 0;
-            // Count the values that remain true
+            // matches is one comparison, which costs less than a branch on each earlier result
             for (int ii = 0; ii < len; ++ii) {
-                final boolean result = results.get(ii);
-                if (!result) {
-                    // already false, no need to compute or increment the count
-                    continue;
-                }
-                boolean newResult = matches(intChunk.get(ii));
+                final boolean newResult = results.get(ii) & matches(intChunk.get(ii));
                 results.set(ii, newResult);
-                // increment the count if the new result is TRUE
                 count += newResult ? 1 : 0;
             }
             return count;
         }
     }
 
-    private final static class IntIntInclusiveExclusiveFilter extends IntIntFilter {
-        private IntIntInclusiveExclusiveFilter(int lower, int upper) {
-            super(lower, upper);
-        }
-
-        @Override
-        public boolean matches(int value) {
-            return IntComparisons.geq(value, lower) && IntComparisons.lt(value, upper);
-        }
-
-        // Identical code for all IntChunkFilter classes, replicated here to prevent megamorphism in the JVM
-        @Override
-        public void filter(
-                final Chunk<? extends Values> values,
-                final LongChunk<OrderedRowKeys> keys,
-                final WritableLongChunk<OrderedRowKeys> results) {
-            final IntChunk<? extends Values> intChunk = values.asIntChunk();
-            final int len = intChunk.size();
-
-            results.setSize(0);
-            for (int ii = 0; ii < len; ++ii) {
-                if (matches(intChunk.get(ii))) {
-                    results.add(keys.get(ii));
-                }
+    /**
+     * @return a filter that passes the values {@link IntComparisons} orders between {@code lower} and {@code upper}
+     */
+    public static ChunkFilter makeIntFilter(int lower, int upper, boolean lowerInclusive, boolean upperInclusive) {
+        // NULL_INT is the least value and MAX_INT the greatest, so neither has a neighbor beyond it
+        if (!lowerInclusive) {
+            if (lower == QueryConstants.MAX_INT) {
+                return ChunkFilter.FALSE_FILTER_INSTANCE;
             }
+            ++lower;
         }
-
-        @Override
-        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final IntChunk<? extends Values> intChunk = values.asIntChunk();
-            final int len = values.size();
-            int count = 0;
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean newResult = matches(intChunk.get(ii));
-                results.set(ii, newResult);
-                // count every true value
-                count += newResult ? 1 : 0;
+        if (!upperInclusive) {
+            if (upper == QueryConstants.NULL_INT) {
+                return ChunkFilter.FALSE_FILTER_INSTANCE;
             }
-            return count;
+            --upper;
         }
-
-        @Override
-        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final IntChunk<? extends Values> intChunk = values.asIntChunk();
-            final int len = values.size();
-            int count = 0;
-            // Count the values that remain true
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean result = results.get(ii);
-                if (!result) {
-                    // already false, no need to compute or increment the count
-                    continue;
-                }
-                boolean newResult = matches(intChunk.get(ii));
-                results.set(ii, newResult);
-                // increment the count if the new result is TRUE
-                count += newResult ? 1 : 0;
-            }
-            return count;
+        if (IntComparisons.gt(lower, upper)) {
+            return ChunkFilter.FALSE_FILTER_INSTANCE;
         }
-    }
-
-    private final static class IntIntExclusiveInclusiveFilter extends IntIntFilter {
-        private IntIntExclusiveInclusiveFilter(int lower, int upper) {
-            super(lower, upper);
+        // a bound that leaves out no value needs no comparison
+        if (lower == QueryConstants.NULL_INT) {
+            return upper == QueryConstants.MAX_INT ? ChunkFilter.TRUE_FILTER_INSTANCE : new IntAtMostFilter(upper);
         }
-
-        @Override
-        public boolean matches(int value) {
-            return IntComparisons.gt(value, lower) && IntComparisons.leq(value, upper);
+        if (upper == QueryConstants.MAX_INT) {
+            return new IntAtLeastFilter(lower);
         }
-
-        // Identical code for all IntChunkFilter classes, replicated here to prevent megamorphism in the JVM
-        @Override
-        public void filter(
-                final Chunk<? extends Values> values,
-                final LongChunk<OrderedRowKeys> keys,
-                final WritableLongChunk<OrderedRowKeys> results) {
-            final IntChunk<? extends Values> intChunk = values.asIntChunk();
-            final int len = intChunk.size();
-
-            results.setSize(0);
-            for (int ii = 0; ii < len; ++ii) {
-                if (matches(intChunk.get(ii))) {
-                    results.add(keys.get(ii));
-                }
-            }
-        }
-
-        @Override
-        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final IntChunk<? extends Values> intChunk = values.asIntChunk();
-            final int len = values.size();
-            int count = 0;
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean newResult = matches(intChunk.get(ii));
-                results.set(ii, newResult);
-                // count every true value
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-
-        @Override
-        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final IntChunk<? extends Values> intChunk = values.asIntChunk();
-            final int len = values.size();
-            int count = 0;
-            // Count the values that remain true
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean result = results.get(ii);
-                if (!result) {
-                    // already false, no need to compute or increment the count
-                    continue;
-                }
-                boolean newResult = matches(intChunk.get(ii));
-                results.set(ii, newResult);
-                // increment the count if the new result is TRUE
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-    }
-
-    private final static class IntIntExclusiveExclusiveFilter extends IntIntFilter {
-        private IntIntExclusiveExclusiveFilter(int lower, int upper) {
-            super(lower, upper);
-        }
-
-        @Override
-        public boolean matches(int value) {
-            return IntComparisons.gt(value, lower) && IntComparisons.lt(value, upper);
-        }
-
-        // Identical code for all IntChunkFilter classes, replicated here to prevent megamorphism in the JVM
-        @Override
-        public void filter(
-                final Chunk<? extends Values> values,
-                final LongChunk<OrderedRowKeys> keys,
-                final WritableLongChunk<OrderedRowKeys> results) {
-            final IntChunk<? extends Values> intChunk = values.asIntChunk();
-            final int len = intChunk.size();
-
-            results.setSize(0);
-            for (int ii = 0; ii < len; ++ii) {
-                if (matches(intChunk.get(ii))) {
-                    results.add(keys.get(ii));
-                }
-            }
-        }
-
-        @Override
-        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final IntChunk<? extends Values> intChunk = values.asIntChunk();
-            final int len = values.size();
-            int count = 0;
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean newResult = matches(intChunk.get(ii));
-                results.set(ii, newResult);
-                // count every true value
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-
-        @Override
-        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final IntChunk<? extends Values> intChunk = values.asIntChunk();
-            final int len = values.size();
-            int count = 0;
-            // Count the values that remain true
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean result = results.get(ii);
-                if (!result) {
-                    // already false, no need to compute or increment the count
-                    continue;
-                }
-                boolean newResult = matches(intChunk.get(ii));
-                results.set(ii, newResult);
-                // increment the count if the new result is TRUE
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-    }
-
-    public static IntChunkFilter makeIntFilter(int lower, int upper, boolean lowerInclusive,
-            boolean upperInclusive) {
-        if (lowerInclusive) {
-            if (upperInclusive) {
-                return new IntIntInclusiveInclusiveFilter(lower, upper);
-            } else {
-                return new IntIntInclusiveExclusiveFilter(lower, upper);
-            }
-        } else {
-            if (upperInclusive) {
-                return new IntIntExclusiveInclusiveFilter(lower, upper);
-            } else {
-                return new IntIntExclusiveExclusiveFilter(lower, upper);
-            }
-        }
+        return new IntBetweenFilter(lower, upper);
     }
 }

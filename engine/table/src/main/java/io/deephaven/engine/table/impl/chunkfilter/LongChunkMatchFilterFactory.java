@@ -11,8 +11,6 @@ import io.deephaven.chunk.*;
 import io.deephaven.chunk.attributes.Values;
 import io.deephaven.engine.rowset.chunkattributes.OrderedRowKeys;
 import io.deephaven.engine.table.MatchOptions;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import it.unimi.dsi.fastutil.longs.LongSet;
 
 /**
  * Creates chunk filters for long values.
@@ -20,7 +18,9 @@ import it.unimi.dsi.fastutil.longs.LongSet;
  * The strategy is that for one, two, or three values we have specialized classes that will do the appropriate simple
  * equality check.
  * <p>
- * For more values, we use a trove set and check contains for each value in the chunk.
+ * For four or more values, {@link #makeFilter} chooses a structure that suits the type and the values. The 8 and 16 bit
+ * types use a bitmap with a bit for every value of the type. The int and long factories use the structures in
+ * {@code IntMultiValueChunkFilters} and {@code LongMultiValueChunkFilters} instead, which are maintained by hand.
  * <p>
  * Each filter carries its own copy of the {@link LongChunkFilter} loops, so that its {@code matches} call is never a
  * virtual call shared with other filters.
@@ -39,7 +39,6 @@ public class LongChunkMatchFilterFactory {
             if (values.length == 3) {
                 return new InverseThreeValueLongChunkFilter(values[0], values[1], values[2]);
             }
-            return new InverseMultiValueLongChunkFilter(values);
         } else {
             if (values.length == 1) {
                 return new SingleValueLongChunkFilter(values[0]);
@@ -50,8 +49,10 @@ public class LongChunkMatchFilterFactory {
             if (values.length == 3) {
                 return new ThreeValueLongChunkFilter(values[0], values[1], values[2]);
             }
-            return new MultiValueLongChunkFilter(values);
         }
+        // region makeMultiValueFilter
+        return LongMultiValueChunkFilters.makeFilter(matchOptions.inverted(), values);
+        // endregion makeMultiValueFilter
     }
 
     private final static class SingleValueLongChunkFilter extends LongChunkFilter {
@@ -450,131 +451,6 @@ public class LongChunkMatchFilterFactory {
         }
     }
 
-    private final static class MultiValueLongChunkFilter extends LongChunkFilter {
-        private final LongSet values;
-
-        private MultiValueLongChunkFilter(long... values) {
-            this.values = new LongOpenHashSet(values);
-        }
-
-        @Override
-        public boolean matches(long value) {
-            return this.values.contains(value);
-        }
-
-        // Identical code for all LongChunkFilter classes, replicated here to prevent megamorphism in the JVM
-        @Override
-        public void filter(
-                final Chunk<? extends Values> values,
-                final LongChunk<OrderedRowKeys> keys,
-                final WritableLongChunk<OrderedRowKeys> results) {
-            final LongChunk<? extends Values> longChunk = values.asLongChunk();
-            final int len = longChunk.size();
-
-            results.setSize(0);
-            for (int ii = 0; ii < len; ++ii) {
-                if (matches(longChunk.get(ii))) {
-                    results.add(keys.get(ii));
-                }
-            }
-        }
-
-        @Override
-        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final LongChunk<? extends Values> longChunk = values.asLongChunk();
-            final int len = values.size();
-            int count = 0;
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean newResult = matches(longChunk.get(ii));
-                results.set(ii, newResult);
-                // count every true value
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-
-        @Override
-        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final LongChunk<? extends Values> longChunk = values.asLongChunk();
-            final int len = values.size();
-            int count = 0;
-            // Count the values that remain true
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean result = results.get(ii);
-                if (!result) {
-                    // already false, no need to compute or increment the count
-                    continue;
-                }
-                boolean newResult = matches(longChunk.get(ii));
-                results.set(ii, newResult);
-                // increment the count if the new result is TRUE
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-    }
-
-    private final static class InverseMultiValueLongChunkFilter extends LongChunkFilter {
-        private final LongSet values;
-
-        private InverseMultiValueLongChunkFilter(long... values) {
-            this.values = new LongOpenHashSet(values);
-        }
-
-        @Override
-        public boolean matches(long value) {
-            return !this.values.contains(value);
-        }
-
-        // Identical code for all LongChunkFilter classes, replicated here to prevent megamorphism in the JVM
-        @Override
-        public void filter(
-                final Chunk<? extends Values> values,
-                final LongChunk<OrderedRowKeys> keys,
-                final WritableLongChunk<OrderedRowKeys> results) {
-            final LongChunk<? extends Values> longChunk = values.asLongChunk();
-            final int len = longChunk.size();
-
-            results.setSize(0);
-            for (int ii = 0; ii < len; ++ii) {
-                if (matches(longChunk.get(ii))) {
-                    results.add(keys.get(ii));
-                }
-            }
-        }
-
-        @Override
-        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final LongChunk<? extends Values> longChunk = values.asLongChunk();
-            final int len = values.size();
-            int count = 0;
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean newResult = matches(longChunk.get(ii));
-                results.set(ii, newResult);
-                // count every true value
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-
-        @Override
-        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final LongChunk<? extends Values> longChunk = values.asLongChunk();
-            final int len = values.size();
-            int count = 0;
-            // Count the values that remain true
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean result = results.get(ii);
-                if (!result) {
-                    // already false, no need to compute or increment the count
-                    continue;
-                }
-                boolean newResult = matches(longChunk.get(ii));
-                results.set(ii, newResult);
-                // increment the count if the new result is TRUE
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-    }
+    // region multiValueFilters
+    // endregion multiValueFilters
 }

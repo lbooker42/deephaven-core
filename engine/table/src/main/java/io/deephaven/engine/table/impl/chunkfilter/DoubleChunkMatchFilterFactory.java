@@ -7,13 +7,13 @@
 // @formatter:off
 package io.deephaven.engine.table.impl.chunkfilter;
 
-import it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import it.unimi.dsi.fastutil.longs.LongSet;
 import io.deephaven.chunk.*;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import io.deephaven.chunk.attributes.Values;
 import io.deephaven.engine.rowset.chunkattributes.OrderedRowKeys;
 import io.deephaven.engine.table.MatchOptions;
+
+import java.util.Arrays;
 
 /**
  * Creates chunk filters for double values.
@@ -21,7 +21,8 @@ import io.deephaven.engine.table.MatchOptions;
  * The strategy is that for one, two, or three values we have specialized classes that will do the appropriate simple
  * equality check.
  * <p>
- * For more values, we use a trove set and check contains for each value in the chunk.
+ * For four or more values, the filters match the canonical bits of the values ({@link #getBits}) with an
+ * {@code LongCuckooSet}; or, if one cannot be built within its limits, a hash set.
  * <p>
  * Each filter carries its own copy of the {@link DoubleChunkFilter} loops, so that its {@code matches} call is never a
  * virtual call shared with other filters.
@@ -43,7 +44,7 @@ public class DoubleChunkMatchFilterFactory {
                 if (values.length == 3) {
                     return new InverseThreeValueNaNDoubleChunkFilter(values[0], values[1], values[2]);
                 }
-                return new InverseMultiValueNaNDoubleChunkFilter(values);
+                return makeMultiValueFilter(true, true, values);
             } else {
                 if (values.length == 1) {
                     return new SingleValueNaNDoubleChunkFilter(values[0]);
@@ -54,7 +55,7 @@ public class DoubleChunkMatchFilterFactory {
                 if (values.length == 3) {
                     return new ThreeValueNaNDoubleChunkFilter(values[0], values[1], values[2]);
                 }
-                return new MultiValueNaNDoubleChunkFilter(values);
+                return makeMultiValueFilter(false, true, values);
             }
         }
 
@@ -68,7 +69,7 @@ public class DoubleChunkMatchFilterFactory {
             if (values.length == 3) {
                 return new InverseThreeValueDoubleChunkFilter(values[0], values[1], values[2]);
             }
-            return new InverseMultiValueDoubleChunkFilter(values);
+            return makeMultiValueFilter(true, false, values);
         } else {
             if (values.length == 1) {
                 return new SingleValueDoubleChunkFilter(values[0]);
@@ -79,7 +80,7 @@ public class DoubleChunkMatchFilterFactory {
             if (values.length == 3) {
                 return new ThreeValueDoubleChunkFilter(values[0], values[1], values[2]);
             }
-            return new MultiValueDoubleChunkFilter(values);
+            return makeMultiValueFilter(false, false, values);
         }
     }
 
@@ -479,104 +480,50 @@ public class DoubleChunkMatchFilterFactory {
         }
     }
 
-    // A DoubleOpenHashSet that canonicalizes -0.0d to +0.0d; NaN values are silently skipped (not added).
-    private static final class DoubleZeroCanonicalOpenHashSet {
-        final DoubleOpenHashSet wrapped;
-
-        DoubleZeroCanonicalOpenHashSet(double... values) {
-            wrapped = new DoubleOpenHashSet(values.length);
-            for (final double v : values) {
-                add(v);
+    /**
+     * @param inverted whether the filter matches the rows that do not hold one of the values
+     * @param keepNaN whether NaN is one of the values to match; without it a NaN among the values matches nothing, as
+     *        under IEEE 754
+     * @param values four or more values
+     */
+    private static DoubleChunkFilter makeMultiValueFilter(final boolean inverted, final boolean keepNaN,
+            final double... values) {
+        final long[] keptBits = new long[values.length];
+        int size = 0;
+        for (final double value : values) {
+            if (keepNaN || !Double.isNaN(value)) {
+                keptBits[size++] = getBits(value);
             }
         }
-
-        private static double canonicalize(final double k) {
-            return k == 0.0d ? 0.0d : k;
+        final long[] valueBitsArray = Arrays.copyOf(keptBits, size);
+        final LongCuckooSet set = LongCuckooSet.build(valueBitsArray);
+        if (set == null) {
+            return makeHashFilter(inverted, valueBitsArray);
         }
-
-        public boolean add(final double k) {
-            return !Double.isNaN(k) && wrapped.add(canonicalize(k));
-        }
-
-        public boolean contains(final double k) {
-            return !Double.isNaN(k) && wrapped.contains(canonicalize(k));
-        }
+        return inverted ? new InverseCuckooDoubleChunkFilter(set) : new CuckooDoubleChunkFilter(set);
     }
 
-    private final static class MultiValueDoubleChunkFilter extends DoubleChunkFilter {
-        private final DoubleZeroCanonicalOpenHashSet values;
+    /**
+     * @return a filter that matches with a hash set of canonical bits, for when no cuckoo table can be built
+     */
+    static DoubleChunkFilter makeHashFilter(final boolean inverted, final long[] hashedBits) {
+        final LongOpenHashSet set = new LongOpenHashSet(hashedBits);
+        return inverted ? new InverseHashDoubleChunkFilter(set) : new HashDoubleChunkFilter(set);
+    }
 
-        private MultiValueDoubleChunkFilter(double... values) {
-            this.values = new DoubleZeroCanonicalOpenHashSet(values);
+    /**
+     * Matches with a cuckoo table of the values' canonical bits.
+     */
+    private final static class CuckooDoubleChunkFilter extends DoubleChunkFilter {
+        private final LongCuckooSet set;
+
+        private CuckooDoubleChunkFilter(final LongCuckooSet set) {
+            this.set = set;
         }
 
         @Override
         public boolean matches(double value) {
-            return this.values.contains(value);
-        }
-
-        // Identical code for all DoubleChunkFilter classes, replicated here to prevent megamorphism in the JVM
-        @Override
-        public void filter(
-                final Chunk<? extends Values> values,
-                final LongChunk<OrderedRowKeys> keys,
-                final WritableLongChunk<OrderedRowKeys> results) {
-            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
-            final int len = doubleChunk.size();
-
-            results.setSize(0);
-            for (int ii = 0; ii < len; ++ii) {
-                if (matches(doubleChunk.get(ii))) {
-                    results.add(keys.get(ii));
-                }
-            }
-        }
-
-        @Override
-        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
-            final int len = values.size();
-            int count = 0;
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean newResult = matches(doubleChunk.get(ii));
-                results.set(ii, newResult);
-                // count every true value
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-
-        @Override
-        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
-            final int len = values.size();
-            int count = 0;
-            // Count the values that remain true
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean result = results.get(ii);
-                if (!result) {
-                    // already false, no need to compute or increment the count
-                    continue;
-                }
-                boolean newResult = matches(doubleChunk.get(ii));
-                results.set(ii, newResult);
-                // increment the count if the new result is TRUE
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-    }
-
-    private final static class InverseMultiValueDoubleChunkFilter extends DoubleChunkFilter {
-        private final DoubleZeroCanonicalOpenHashSet values;
-
-        private InverseMultiValueDoubleChunkFilter(double... values) {
-            this.values = new DoubleZeroCanonicalOpenHashSet(values);
-        }
-
-        @Override
-        public boolean matches(double value) {
-            return !this.values.contains(value);
+            return set.contains(getBits(value));
         }
 
         // Identical code for all DoubleChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -632,8 +579,206 @@ public class DoubleChunkMatchFilterFactory {
     }
 
     /**
-     * Whether any of the given values is NaN.
+     * The inverse of {@link CuckooDoubleChunkFilter}.
      */
+    private final static class InverseCuckooDoubleChunkFilter extends DoubleChunkFilter {
+        private final LongCuckooSet set;
+
+        private InverseCuckooDoubleChunkFilter(final LongCuckooSet set) {
+            this.set = set;
+        }
+
+        @Override
+        public boolean matches(double value) {
+            return !set.contains(getBits(value));
+        }
+
+        // Identical code for all DoubleChunkFilter classes, replicated here to prevent megamorphism in the JVM
+        @Override
+        public void filter(
+                final Chunk<? extends Values> values,
+                final LongChunk<OrderedRowKeys> keys,
+                final WritableLongChunk<OrderedRowKeys> results) {
+            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
+            final int len = doubleChunk.size();
+
+            results.setSize(0);
+            for (int ii = 0; ii < len; ++ii) {
+                if (matches(doubleChunk.get(ii))) {
+                    results.add(keys.get(ii));
+                }
+            }
+        }
+
+        @Override
+        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
+            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
+            final int len = values.size();
+            int count = 0;
+            for (int ii = 0; ii < len; ++ii) {
+                final boolean newResult = matches(doubleChunk.get(ii));
+                results.set(ii, newResult);
+                // count every true value
+                count += newResult ? 1 : 0;
+            }
+            return count;
+        }
+
+        @Override
+        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
+            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
+            final int len = values.size();
+            int count = 0;
+            // Count the values that remain true
+            for (int ii = 0; ii < len; ++ii) {
+                final boolean result = results.get(ii);
+                if (!result) {
+                    // already false, no need to compute or increment the count
+                    continue;
+                }
+                boolean newResult = matches(doubleChunk.get(ii));
+                results.set(ii, newResult);
+                // increment the count if the new result is TRUE
+                count += newResult ? 1 : 0;
+            }
+            return count;
+        }
+    }
+
+    /**
+     * Matches with a hash set of the values' canonical bits.
+     */
+    private final static class HashDoubleChunkFilter extends DoubleChunkFilter {
+        private final LongOpenHashSet set;
+
+        private HashDoubleChunkFilter(final LongOpenHashSet set) {
+            this.set = set;
+        }
+
+        @Override
+        public boolean matches(double value) {
+            return set.contains(getBits(value));
+        }
+
+        // Identical code for all DoubleChunkFilter classes, replicated here to prevent megamorphism in the JVM
+        @Override
+        public void filter(
+                final Chunk<? extends Values> values,
+                final LongChunk<OrderedRowKeys> keys,
+                final WritableLongChunk<OrderedRowKeys> results) {
+            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
+            final int len = doubleChunk.size();
+
+            results.setSize(0);
+            for (int ii = 0; ii < len; ++ii) {
+                if (matches(doubleChunk.get(ii))) {
+                    results.add(keys.get(ii));
+                }
+            }
+        }
+
+        @Override
+        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
+            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
+            final int len = values.size();
+            int count = 0;
+            for (int ii = 0; ii < len; ++ii) {
+                final boolean newResult = matches(doubleChunk.get(ii));
+                results.set(ii, newResult);
+                // count every true value
+                count += newResult ? 1 : 0;
+            }
+            return count;
+        }
+
+        @Override
+        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
+            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
+            final int len = values.size();
+            int count = 0;
+            // Count the values that remain true
+            for (int ii = 0; ii < len; ++ii) {
+                final boolean result = results.get(ii);
+                if (!result) {
+                    // already false, no need to compute or increment the count
+                    continue;
+                }
+                boolean newResult = matches(doubleChunk.get(ii));
+                results.set(ii, newResult);
+                // increment the count if the new result is TRUE
+                count += newResult ? 1 : 0;
+            }
+            return count;
+        }
+    }
+
+    /**
+     * The inverse of {@link HashDoubleChunkFilter}.
+     */
+    private final static class InverseHashDoubleChunkFilter extends DoubleChunkFilter {
+        private final LongOpenHashSet set;
+
+        private InverseHashDoubleChunkFilter(final LongOpenHashSet set) {
+            this.set = set;
+        }
+
+        @Override
+        public boolean matches(double value) {
+            return !set.contains(getBits(value));
+        }
+
+        // Identical code for all DoubleChunkFilter classes, replicated here to prevent megamorphism in the JVM
+        @Override
+        public void filter(
+                final Chunk<? extends Values> values,
+                final LongChunk<OrderedRowKeys> keys,
+                final WritableLongChunk<OrderedRowKeys> results) {
+            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
+            final int len = doubleChunk.size();
+
+            results.setSize(0);
+            for (int ii = 0; ii < len; ++ii) {
+                if (matches(doubleChunk.get(ii))) {
+                    results.add(keys.get(ii));
+                }
+            }
+        }
+
+        @Override
+        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
+            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
+            final int len = values.size();
+            int count = 0;
+            for (int ii = 0; ii < len; ++ii) {
+                final boolean newResult = matches(doubleChunk.get(ii));
+                results.set(ii, newResult);
+                // count every true value
+                count += newResult ? 1 : 0;
+            }
+            return count;
+        }
+
+        @Override
+        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
+            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
+            final int len = values.size();
+            int count = 0;
+            // Count the values that remain true
+            for (int ii = 0; ii < len; ++ii) {
+                final boolean result = results.get(ii);
+                if (!result) {
+                    // already false, no need to compute or increment the count
+                    continue;
+                }
+                boolean newResult = matches(doubleChunk.get(ii));
+                results.set(ii, newResult);
+                // increment the count if the new result is TRUE
+                count += newResult ? 1 : 0;
+            }
+            return count;
+        }
+    }
+
     private static boolean containsNaN(final double... values) {
         for (final double value : values) {
             if (Double.isNaN(value)) {
@@ -1000,142 +1145,6 @@ public class DoubleChunkMatchFilterFactory {
         public boolean matches(double value) {
             final long valueBits = getBits(value);
             return valueBits != valueBits1 && valueBits != valueBits2 && valueBits != valueBits3;
-        }
-
-        // Identical code for all DoubleChunkFilter classes, replicated here to prevent megamorphism in the JVM
-        @Override
-        public void filter(
-                final Chunk<? extends Values> values,
-                final LongChunk<OrderedRowKeys> keys,
-                final WritableLongChunk<OrderedRowKeys> results) {
-            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
-            final int len = doubleChunk.size();
-
-            results.setSize(0);
-            for (int ii = 0; ii < len; ++ii) {
-                if (matches(doubleChunk.get(ii))) {
-                    results.add(keys.get(ii));
-                }
-            }
-        }
-
-        @Override
-        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
-            final int len = values.size();
-            int count = 0;
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean newResult = matches(doubleChunk.get(ii));
-                results.set(ii, newResult);
-                // count every true value
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-
-        @Override
-        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
-            final int len = values.size();
-            int count = 0;
-            // Count the values that remain true
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean result = results.get(ii);
-                if (!result) {
-                    // already false, no need to compute or increment the count
-                    continue;
-                }
-                boolean newResult = matches(doubleChunk.get(ii));
-                results.set(ii, newResult);
-                // increment the count if the new result is TRUE
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-    }
-
-    private final static class MultiValueNaNDoubleChunkFilter extends DoubleChunkFilter {
-        private final LongSet values;
-
-        private MultiValueNaNDoubleChunkFilter(double... values) {
-            this.values = new LongOpenHashSet(values.length);
-            for (double v : values) {
-                this.values.add(getBits(v));
-            }
-        }
-
-        @Override
-        public boolean matches(double value) {
-            final long valueBits = getBits(value);
-            return this.values.contains(valueBits);
-        }
-
-        // Identical code for all DoubleChunkFilter classes, replicated here to prevent megamorphism in the JVM
-        @Override
-        public void filter(
-                final Chunk<? extends Values> values,
-                final LongChunk<OrderedRowKeys> keys,
-                final WritableLongChunk<OrderedRowKeys> results) {
-            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
-            final int len = doubleChunk.size();
-
-            results.setSize(0);
-            for (int ii = 0; ii < len; ++ii) {
-                if (matches(doubleChunk.get(ii))) {
-                    results.add(keys.get(ii));
-                }
-            }
-        }
-
-        @Override
-        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
-            final int len = values.size();
-            int count = 0;
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean newResult = matches(doubleChunk.get(ii));
-                results.set(ii, newResult);
-                // count every true value
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-
-        @Override
-        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final DoubleChunk<? extends Values> doubleChunk = values.asDoubleChunk();
-            final int len = values.size();
-            int count = 0;
-            // Count the values that remain true
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean result = results.get(ii);
-                if (!result) {
-                    // already false, no need to compute or increment the count
-                    continue;
-                }
-                boolean newResult = matches(doubleChunk.get(ii));
-                results.set(ii, newResult);
-                // increment the count if the new result is TRUE
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-    }
-
-    private final static class InverseMultiValueNaNDoubleChunkFilter extends DoubleChunkFilter {
-        private final LongSet values;
-
-        private InverseMultiValueNaNDoubleChunkFilter(double... values) {
-            this.values = new LongOpenHashSet(values.length);
-            for (double v : values) {
-                this.values.add(getBits(v));
-            }
-        }
-
-        @Override
-        public boolean matches(double value) {
-            final long valueBits = getBits(value);
-            return !values.contains(valueBits);
         }
 
         // Identical code for all DoubleChunkFilter classes, replicated here to prevent megamorphism in the JVM

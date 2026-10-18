@@ -12,6 +12,7 @@ import io.deephaven.engine.table.MatchOptions;
 import io.deephaven.engine.table.impl.chunkfilter.ChunkFilter;
 import io.deephaven.engine.table.impl.chunkfilter.IntChunkMatchFilterFactory;
 import io.deephaven.engine.table.impl.chunkfilter.IntRangeComparator;
+import io.deephaven.util.QueryConstants;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -116,8 +117,9 @@ public class ChunkFilterDispatchBenchmark {
 
         if (pollute) {
             final List<ChunkFilter> others = List.of(
-                    IntRangeComparator.makeIntFilter(0, 511, false, true),
-                    IntRangeComparator.makeIntFilter(0, 511, true, false),
+                    // the other range filter classes: at most, at least, and between other bounds
+                    IntRangeComparator.makeIntFilter(QueryConstants.NULL_INT, 511, true, true),
+                    IntRangeComparator.makeIntFilter(512, QueryConstants.MAX_INT, true, true),
                     IntRangeComparator.makeIntFilter(0, 511, false, false),
                     IntChunkMatchFilterFactory.makeFilter(MatchOptions.INVERTED, 1),
                     IntChunkMatchFilterFactory.makeFilter(MatchOptions.REGULAR, 1, 2),

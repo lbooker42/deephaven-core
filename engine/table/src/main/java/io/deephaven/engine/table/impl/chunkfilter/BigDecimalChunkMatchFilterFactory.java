@@ -5,6 +5,7 @@ package io.deephaven.engine.table.impl.chunkfilter;
 
 import io.deephaven.engine.table.MatchOptions;
 import io.deephaven.util.compare.ObjectComparisons;
+import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
@@ -16,6 +17,13 @@ import java.util.Arrays;
  */
 class BigDecimalChunkMatchFilterFactory {
     private BigDecimalChunkMatchFilterFactory() {} // static use only
+
+    /**
+     * The fewest values that are hashed rather than binary searched. Measured with {@code MatchFilterWhereBenchmark} at
+     * 10% hits, the binary search wins at four and eight values, is even at 16, and loses from 32; the hash set grows
+     * far more slowly (29 to 33 ns per row from 4 to 64 values, against 18 to 40).
+     */
+    static final int HASH_THRESHOLD = 16;
 
     /**
      * Create a filter for the provided values.
@@ -53,7 +61,9 @@ class BigDecimalChunkMatchFilterFactory {
                     return new InverseThreeValueBigDecimalChunkFilter(matchesNull, sortedValues[0], sortedValues[1],
                             sortedValues[2]);
                 default:
-                    return new InverseMultiValueBigDecimalChunkFilter(matchesNull, sortedValues, size);
+                    return size >= HASH_THRESHOLD
+                            ? new InverseHashBigDecimalChunkFilter(matchesNull, sortedValues, size)
+                            : new InverseMultiValueBigDecimalChunkFilter(matchesNull, sortedValues, size);
             }
         }
         switch (size) {
@@ -65,7 +75,9 @@ class BigDecimalChunkMatchFilterFactory {
                 return new ThreeValueBigDecimalChunkFilter(matchesNull, sortedValues[0], sortedValues[1],
                         sortedValues[2]);
             default:
-                return new MultiValueBigDecimalChunkFilter(matchesNull, sortedValues, size);
+                return size >= HASH_THRESHOLD
+                        ? new HashBigDecimalChunkFilter(matchesNull, sortedValues, size)
+                        : new MultiValueBigDecimalChunkFilter(matchesNull, sortedValues, size);
         }
     }
 
@@ -216,6 +228,51 @@ class BigDecimalChunkMatchFilterFactory {
     private final static class InverseMultiValueBigDecimalChunkFilter extends SortedValues {
         private InverseMultiValueBigDecimalChunkFilter(boolean matchesNull, BigDecimal[] sortedValues, int size) {
             super(matchesNull, sortedValues, size);
+        }
+
+        @Override
+        public boolean matches(BigDecimal value) {
+            return !contains(value);
+        }
+    }
+
+    /**
+     * The first {@code size} non-null values with their trailing zeros stripped, in a hash set. Two BigDecimals are
+     * equal by {@link BigDecimal#compareTo(BigDecimal)} exactly when they are equal by {@code equals} once stripped, so
+     * one strip and one hash lookup per row decide the match, where a binary search makes several {@code compareTo}
+     * calls.
+     */
+    private static abstract class StrippedValues extends ObjectChunkFilter<BigDecimal> {
+        private final ObjectOpenHashSet<BigDecimal> stripped;
+        private final boolean matchesNull;
+
+        private StrippedValues(final boolean matchesNull, final BigDecimal[] values, final int size) {
+            this.stripped = new ObjectOpenHashSet<>(size);
+            for (int ii = 0; ii < size; ++ii) {
+                stripped.add(values[ii].stripTrailingZeros());
+            }
+            this.matchesNull = matchesNull;
+        }
+
+        final boolean contains(final BigDecimal value) {
+            return value == null ? matchesNull : stripped.contains(value.stripTrailingZeros());
+        }
+    }
+
+    private final static class HashBigDecimalChunkFilter extends StrippedValues {
+        private HashBigDecimalChunkFilter(boolean matchesNull, BigDecimal[] values, int size) {
+            super(matchesNull, values, size);
+        }
+
+        @Override
+        public boolean matches(BigDecimal value) {
+            return contains(value);
+        }
+    }
+
+    private final static class InverseHashBigDecimalChunkFilter extends StrippedValues {
+        private InverseHashBigDecimalChunkFilter(boolean matchesNull, BigDecimal[] values, int size) {
+            super(matchesNull, values, size);
         }
 
         @Override

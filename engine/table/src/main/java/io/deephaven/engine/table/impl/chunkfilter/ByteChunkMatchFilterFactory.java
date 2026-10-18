@@ -11,8 +11,6 @@ import io.deephaven.chunk.*;
 import io.deephaven.chunk.attributes.Values;
 import io.deephaven.engine.rowset.chunkattributes.OrderedRowKeys;
 import io.deephaven.engine.table.MatchOptions;
-import it.unimi.dsi.fastutil.bytes.ByteOpenHashSet;
-import it.unimi.dsi.fastutil.bytes.ByteSet;
 
 /**
  * Creates chunk filters for byte values.
@@ -20,7 +18,9 @@ import it.unimi.dsi.fastutil.bytes.ByteSet;
  * The strategy is that for one, two, or three values we have specialized classes that will do the appropriate simple
  * equality check.
  * <p>
- * For more values, we use a trove set and check contains for each value in the chunk.
+ * For four or more values, {@link #makeFilter} chooses a structure that suits the type and the values. The 8 and 16 bit
+ * types use a bitmap with a bit for every value of the type. The int and long factories use the structures in
+ * {@code IntMultiValueChunkFilters} and {@code LongMultiValueChunkFilters} instead, which are maintained by hand.
  * <p>
  * Each filter carries its own copy of the {@link ByteChunkFilter} loops, so that its {@code matches} call is never a
  * virtual call shared with other filters.
@@ -39,7 +39,6 @@ public class ByteChunkMatchFilterFactory {
             if (values.length == 3) {
                 return new InverseThreeValueByteChunkFilter(values[0], values[1], values[2]);
             }
-            return new InverseMultiValueByteChunkFilter(values);
         } else {
             if (values.length == 1) {
                 return new SingleValueByteChunkFilter(values[0]);
@@ -50,8 +49,12 @@ public class ByteChunkMatchFilterFactory {
             if (values.length == 3) {
                 return new ThreeValueByteChunkFilter(values[0], values[1], values[2]);
             }
-            return new MultiValueByteChunkFilter(values);
         }
+        // region makeMultiValueFilter
+        return matchOptions.inverted()
+                ? new InverseBitmapByteChunkFilter(values)
+                : new BitmapByteChunkFilter(values);
+        // endregion makeMultiValueFilter
     }
 
     private final static class SingleValueByteChunkFilter extends ByteChunkFilter {
@@ -450,16 +453,35 @@ public class ByteChunkMatchFilterFactory {
         }
     }
 
-    private final static class MultiValueByteChunkFilter extends ByteChunkFilter {
-        private final ByteSet values;
+    // region multiValueFilters
+    /**
+     * @return a bitmap with a bit for every byte value, set for each of {@code values}; null is one of the values a
+     *         byte can hold, so it needs no special case
+     */
+    private static long[] makeBitmap(final byte... values) {
+        final long[] bitmap = new long[(Byte.MAX_VALUE - Byte.MIN_VALUE + 1) >>> 6];
+        for (final byte value : values) {
+            final int index = value - Byte.MIN_VALUE;
+            bitmap[index >>> 6] |= 1L << index;
+        }
+        return bitmap;
+    }
 
-        private MultiValueByteChunkFilter(byte... values) {
-            this.values = new ByteOpenHashSet(values);
+    private static boolean bitmapContains(final long[] bitmap, final byte value) {
+        final int index = value - Byte.MIN_VALUE;
+        return (bitmap[index >>> 6] & (1L << index)) != 0;
+    }
+
+    private final static class BitmapByteChunkFilter extends ByteChunkFilter {
+        private final long[] bitmap;
+
+        private BitmapByteChunkFilter(byte... values) {
+            this.bitmap = makeBitmap(values);
         }
 
         @Override
         public boolean matches(byte value) {
-            return this.values.contains(value);
+            return bitmapContains(bitmap, value);
         }
 
         // Identical code for all ByteChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -514,16 +536,16 @@ public class ByteChunkMatchFilterFactory {
         }
     }
 
-    private final static class InverseMultiValueByteChunkFilter extends ByteChunkFilter {
-        private final ByteSet values;
+    private final static class InverseBitmapByteChunkFilter extends ByteChunkFilter {
+        private final long[] bitmap;
 
-        private InverseMultiValueByteChunkFilter(byte... values) {
-            this.values = new ByteOpenHashSet(values);
+        private InverseBitmapByteChunkFilter(byte... values) {
+            this.bitmap = makeBitmap(values);
         }
 
         @Override
         public boolean matches(byte value) {
-            return !this.values.contains(value);
+            return !bitmapContains(bitmap, value);
         }
 
         // Identical code for all ByteChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -577,4 +599,5 @@ public class ByteChunkMatchFilterFactory {
             return count;
         }
     }
+    // endregion multiValueFilters
 }

@@ -78,6 +78,13 @@ createJmhTask('jmhRunBuilder', 'RowSetBuilderBenchmark')
 createJmhTask('jmhRunMatchHistorical',
         ['MatchFilterHistoricalBenchmark',
          '-prof=io.deephaven.benchmark.db.ResultSizeProfiler'])
+// The default types hold all the default numbers of match values. byte, short and char run the numbers they can hold.
+createJmhTask('jmhRunMatchFilter', 'engine\\.matchfilter\\.')
+createJmhTask('jmhRunMatchFilterShortChar',
+        ['engine\\.matchfilter\\.', '-p', 'type=short,char', '-p', 'values=1,2,8,32,1024,4096'])
+createJmhTask('jmhRunMatchFilterByte',
+        ['engine\\.matchfilter\\.', '-p', 'type=byte', '-p', 'values=1,2,8,32'])
+createJmhTask('jmhRunRangeChunkFilter', 'engine\\.rangefilter\\.')
 createJmhTask('jmhRunRowSetGetFind', 'RowSetGetFindBench', ['-DMetricsManager.enabled=true'])
 createJmhTask('jmhRunRowSetIncrementalInsert', 'RowSetIncrementalInsertBench')
 createJmhTask('jmhRunRspSortedRangesInsertShape', 'RspSortedRangesInsertShapeBench')

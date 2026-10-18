@@ -64,6 +64,11 @@ public class MatchFilter extends WhereFilterImpl implements ExposesChunkFilter {
     private String columnName;
     private Class<?> columnType;
     private Object[] values;
+    /**
+     * For an {@link Instant} column, the epoch nanoseconds of {@link #values}, which it is matched with when its source
+     * can be read as the nanoseconds it holds; otherwise null.
+     */
+    private Object[] epochNanosValues;
     private String[] strValues;
     private final MatchOptions matchOptions;
 
@@ -170,6 +175,42 @@ public class MatchFilter extends WhereFilterImpl implements ExposesChunkFilter {
                 .filter(value -> !(dropNaN && isNaN(value)) && (value == null || valueType.isInstance(value)))
                 .toArray();
         return retained.length == convertedValues.length ? convertedValues : retained;
+    }
+
+    /**
+     * Read as nanoseconds, an {@link Instant} column is matched as longs: each row is compared without making an
+     * {@link Instant} of it, and with the structures for long values.
+     *
+     * @param instants {@link Instant} values and nulls
+     * @return the epoch nanoseconds of each value, as a {@link Long}, and null for null. A value that a nanosecond
+     *         column cannot hold, which no row can match, is left out: one too far from the epoch, or one whose
+     *         nanoseconds are {@link QueryConstants#NULL_LONG}, which such a column holds for null.
+     */
+    private static Object[] toEpochNanos(final Object[] instants) {
+        final List<Object> epochNanos = new ArrayList<>(instants.length);
+        for (final Object value : instants) {
+            if (value == null) {
+                epochNanos.add(null);
+                continue;
+            }
+            final Instant instant = (Instant) value;
+            long seconds = instant.getEpochSecond();
+            long nanoOfSecond = instant.getNano();
+            if (seconds < 0 && nanoOfSecond > 0) {
+                // borrow a second, so that the seconds alone do not overflow where their sum with the nanoseconds fits
+                ++seconds;
+                nanoOfSecond -= 1_000_000_000L;
+            }
+            try {
+                final long nanos = Math.addExact(Math.multiplyExact(seconds, 1_000_000_000L), nanoOfSecond);
+                if (nanos != QueryConstants.NULL_LONG) {
+                    epochNanos.add(nanos);
+                }
+            } catch (final ArithmeticException tooFar) {
+                // no row of a nanosecond column can hold it
+            }
+        }
+        return epochNanos.toArray();
     }
 
     private static boolean isNaN(final Object value) {
@@ -324,6 +365,7 @@ public class MatchFilter extends WhereFilterImpl implements ExposesChunkFilter {
             // Object may hold NaN, which is matched by equals rather than by IEEE 754 rules.
             final boolean dropNaN = !nanMatch && columnType.isPrimitive();
             values = dropUnmatchable(converted, dropNaN);
+            epochNanosValues = columnType == Instant.class ? toEpochNanos(values) : null;
         } catch (final RuntimeException err) {
             if (failoverFilter == null) {
                 throw err;
@@ -348,6 +390,9 @@ public class MatchFilter extends WhereFilterImpl implements ExposesChunkFilter {
         }
 
         final ColumnSource<?> columnSource = table.getColumnSource(columnName);
+        if (epochNanosValues != null && columnSource.allowsReinterpret(long.class)) {
+            return columnSource.reinterpret(long.class).match(usePrev, matchOptions, selection, epochNanosValues);
+        }
         return columnSource.match(usePrev, matchOptions, selection, values);
     }
 
@@ -365,6 +410,9 @@ public class MatchFilter extends WhereFilterImpl implements ExposesChunkFilter {
 
         final ColumnSource<?> columnSource = table.getColumnSource(columnName);
         final MatchOptions options = matchOptions.withInverted(!matchOptions.inverted());
+        if (epochNanosValues != null && columnSource.allowsReinterpret(long.class)) {
+            return columnSource.reinterpret(long.class).match(usePrev, options, selection, epochNanosValues);
+        }
         return columnSource.match(usePrev, options, selection, values);
     }
 
@@ -1215,6 +1263,7 @@ public class MatchFilter extends WhereFilterImpl implements ExposesChunkFilter {
             // a chunk filter holds no state of its own, so the copy shares ours rather than building another
             copy.chunkFilter = chunkFilter;
             copy.values = values;
+            copy.epochNanosValues = epochNanosValues;
             copy.columnType = columnType;
             // If we failed over, the copy must too, or it would claim to be initialized without any values to match.
             copy.failedOver = failedOver;

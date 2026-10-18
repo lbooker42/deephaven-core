@@ -4,13 +4,13 @@
 // @formatter:off
 package io.deephaven.engine.table.impl.chunkfilter;
 
-import it.unimi.dsi.fastutil.floats.FloatOpenHashSet;
-import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
-import it.unimi.dsi.fastutil.ints.IntSet;
 import io.deephaven.chunk.*;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import io.deephaven.chunk.attributes.Values;
 import io.deephaven.engine.rowset.chunkattributes.OrderedRowKeys;
 import io.deephaven.engine.table.MatchOptions;
+
+import java.util.Arrays;
 
 /**
  * Creates chunk filters for float values.
@@ -18,7 +18,8 @@ import io.deephaven.engine.table.MatchOptions;
  * The strategy is that for one, two, or three values we have specialized classes that will do the appropriate simple
  * equality check.
  * <p>
- * For more values, we use a trove set and check contains for each value in the chunk.
+ * For four or more values, the filters match the canonical bits of the values ({@link #getBits}) with an
+ * {@code IntCuckooSet}; or, if one cannot be built within its limits, a hash set.
  * <p>
  * Each filter carries its own copy of the {@link FloatChunkFilter} loops, so that its {@code matches} call is never a
  * virtual call shared with other filters.
@@ -40,7 +41,7 @@ public class FloatChunkMatchFilterFactory {
                 if (values.length == 3) {
                     return new InverseThreeValueNaNFloatChunkFilter(values[0], values[1], values[2]);
                 }
-                return new InverseMultiValueNaNFloatChunkFilter(values);
+                return makeMultiValueFilter(true, true, values);
             } else {
                 if (values.length == 1) {
                     return new SingleValueNaNFloatChunkFilter(values[0]);
@@ -51,7 +52,7 @@ public class FloatChunkMatchFilterFactory {
                 if (values.length == 3) {
                     return new ThreeValueNaNFloatChunkFilter(values[0], values[1], values[2]);
                 }
-                return new MultiValueNaNFloatChunkFilter(values);
+                return makeMultiValueFilter(false, true, values);
             }
         }
 
@@ -65,7 +66,7 @@ public class FloatChunkMatchFilterFactory {
             if (values.length == 3) {
                 return new InverseThreeValueFloatChunkFilter(values[0], values[1], values[2]);
             }
-            return new InverseMultiValueFloatChunkFilter(values);
+            return makeMultiValueFilter(true, false, values);
         } else {
             if (values.length == 1) {
                 return new SingleValueFloatChunkFilter(values[0]);
@@ -76,7 +77,7 @@ public class FloatChunkMatchFilterFactory {
             if (values.length == 3) {
                 return new ThreeValueFloatChunkFilter(values[0], values[1], values[2]);
             }
-            return new MultiValueFloatChunkFilter(values);
+            return makeMultiValueFilter(false, false, values);
         }
     }
 
@@ -476,104 +477,50 @@ public class FloatChunkMatchFilterFactory {
         }
     }
 
-    // A FloatOpenHashSet that canonicalizes -0.0f to +0.0f; NaN values are silently skipped (not added).
-    private static final class FloatZeroCanonicalOpenHashSet {
-        final FloatOpenHashSet wrapped;
-
-        FloatZeroCanonicalOpenHashSet(float... values) {
-            wrapped = new FloatOpenHashSet(values.length);
-            for (final float v : values) {
-                add(v);
+    /**
+     * @param inverted whether the filter matches the rows that do not hold one of the values
+     * @param keepNaN whether NaN is one of the values to match; without it a NaN among the values matches nothing, as
+     *        under IEEE 754
+     * @param values four or more values
+     */
+    private static FloatChunkFilter makeMultiValueFilter(final boolean inverted, final boolean keepNaN,
+            final float... values) {
+        final int[] keptBits = new int[values.length];
+        int size = 0;
+        for (final float value : values) {
+            if (keepNaN || !Float.isNaN(value)) {
+                keptBits[size++] = getBits(value);
             }
         }
-
-        private static float canonicalize(final float k) {
-            return k == 0.0f ? 0.0f : k;
+        final int[] valueBitsArray = Arrays.copyOf(keptBits, size);
+        final IntCuckooSet set = IntCuckooSet.build(valueBitsArray);
+        if (set == null) {
+            return makeHashFilter(inverted, valueBitsArray);
         }
-
-        public boolean add(final float k) {
-            return !Float.isNaN(k) && wrapped.add(canonicalize(k));
-        }
-
-        public boolean contains(final float k) {
-            return !Float.isNaN(k) && wrapped.contains(canonicalize(k));
-        }
+        return inverted ? new InverseCuckooFloatChunkFilter(set) : new CuckooFloatChunkFilter(set);
     }
 
-    private final static class MultiValueFloatChunkFilter extends FloatChunkFilter {
-        private final FloatZeroCanonicalOpenHashSet values;
+    /**
+     * @return a filter that matches with a hash set of canonical bits, for when no cuckoo table can be built
+     */
+    static FloatChunkFilter makeHashFilter(final boolean inverted, final int[] hashedBits) {
+        final IntOpenHashSet set = new IntOpenHashSet(hashedBits);
+        return inverted ? new InverseHashFloatChunkFilter(set) : new HashFloatChunkFilter(set);
+    }
 
-        private MultiValueFloatChunkFilter(float... values) {
-            this.values = new FloatZeroCanonicalOpenHashSet(values);
+    /**
+     * Matches with a cuckoo table of the values' canonical bits.
+     */
+    private final static class CuckooFloatChunkFilter extends FloatChunkFilter {
+        private final IntCuckooSet set;
+
+        private CuckooFloatChunkFilter(final IntCuckooSet set) {
+            this.set = set;
         }
 
         @Override
         public boolean matches(float value) {
-            return this.values.contains(value);
-        }
-
-        // Identical code for all FloatChunkFilter classes, replicated here to prevent megamorphism in the JVM
-        @Override
-        public void filter(
-                final Chunk<? extends Values> values,
-                final LongChunk<OrderedRowKeys> keys,
-                final WritableLongChunk<OrderedRowKeys> results) {
-            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
-            final int len = floatChunk.size();
-
-            results.setSize(0);
-            for (int ii = 0; ii < len; ++ii) {
-                if (matches(floatChunk.get(ii))) {
-                    results.add(keys.get(ii));
-                }
-            }
-        }
-
-        @Override
-        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
-            final int len = values.size();
-            int count = 0;
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean newResult = matches(floatChunk.get(ii));
-                results.set(ii, newResult);
-                // count every true value
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-
-        @Override
-        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
-            final int len = values.size();
-            int count = 0;
-            // Count the values that remain true
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean result = results.get(ii);
-                if (!result) {
-                    // already false, no need to compute or increment the count
-                    continue;
-                }
-                boolean newResult = matches(floatChunk.get(ii));
-                results.set(ii, newResult);
-                // increment the count if the new result is TRUE
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-    }
-
-    private final static class InverseMultiValueFloatChunkFilter extends FloatChunkFilter {
-        private final FloatZeroCanonicalOpenHashSet values;
-
-        private InverseMultiValueFloatChunkFilter(float... values) {
-            this.values = new FloatZeroCanonicalOpenHashSet(values);
-        }
-
-        @Override
-        public boolean matches(float value) {
-            return !this.values.contains(value);
+            return set.contains(getBits(value));
         }
 
         // Identical code for all FloatChunkFilter classes, replicated here to prevent megamorphism in the JVM
@@ -629,8 +576,206 @@ public class FloatChunkMatchFilterFactory {
     }
 
     /**
-     * Whether any of the given values is NaN.
+     * The inverse of {@link CuckooFloatChunkFilter}.
      */
+    private final static class InverseCuckooFloatChunkFilter extends FloatChunkFilter {
+        private final IntCuckooSet set;
+
+        private InverseCuckooFloatChunkFilter(final IntCuckooSet set) {
+            this.set = set;
+        }
+
+        @Override
+        public boolean matches(float value) {
+            return !set.contains(getBits(value));
+        }
+
+        // Identical code for all FloatChunkFilter classes, replicated here to prevent megamorphism in the JVM
+        @Override
+        public void filter(
+                final Chunk<? extends Values> values,
+                final LongChunk<OrderedRowKeys> keys,
+                final WritableLongChunk<OrderedRowKeys> results) {
+            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
+            final int len = floatChunk.size();
+
+            results.setSize(0);
+            for (int ii = 0; ii < len; ++ii) {
+                if (matches(floatChunk.get(ii))) {
+                    results.add(keys.get(ii));
+                }
+            }
+        }
+
+        @Override
+        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
+            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
+            final int len = values.size();
+            int count = 0;
+            for (int ii = 0; ii < len; ++ii) {
+                final boolean newResult = matches(floatChunk.get(ii));
+                results.set(ii, newResult);
+                // count every true value
+                count += newResult ? 1 : 0;
+            }
+            return count;
+        }
+
+        @Override
+        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
+            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
+            final int len = values.size();
+            int count = 0;
+            // Count the values that remain true
+            for (int ii = 0; ii < len; ++ii) {
+                final boolean result = results.get(ii);
+                if (!result) {
+                    // already false, no need to compute or increment the count
+                    continue;
+                }
+                boolean newResult = matches(floatChunk.get(ii));
+                results.set(ii, newResult);
+                // increment the count if the new result is TRUE
+                count += newResult ? 1 : 0;
+            }
+            return count;
+        }
+    }
+
+    /**
+     * Matches with a hash set of the values' canonical bits.
+     */
+    private final static class HashFloatChunkFilter extends FloatChunkFilter {
+        private final IntOpenHashSet set;
+
+        private HashFloatChunkFilter(final IntOpenHashSet set) {
+            this.set = set;
+        }
+
+        @Override
+        public boolean matches(float value) {
+            return set.contains(getBits(value));
+        }
+
+        // Identical code for all FloatChunkFilter classes, replicated here to prevent megamorphism in the JVM
+        @Override
+        public void filter(
+                final Chunk<? extends Values> values,
+                final LongChunk<OrderedRowKeys> keys,
+                final WritableLongChunk<OrderedRowKeys> results) {
+            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
+            final int len = floatChunk.size();
+
+            results.setSize(0);
+            for (int ii = 0; ii < len; ++ii) {
+                if (matches(floatChunk.get(ii))) {
+                    results.add(keys.get(ii));
+                }
+            }
+        }
+
+        @Override
+        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
+            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
+            final int len = values.size();
+            int count = 0;
+            for (int ii = 0; ii < len; ++ii) {
+                final boolean newResult = matches(floatChunk.get(ii));
+                results.set(ii, newResult);
+                // count every true value
+                count += newResult ? 1 : 0;
+            }
+            return count;
+        }
+
+        @Override
+        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
+            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
+            final int len = values.size();
+            int count = 0;
+            // Count the values that remain true
+            for (int ii = 0; ii < len; ++ii) {
+                final boolean result = results.get(ii);
+                if (!result) {
+                    // already false, no need to compute or increment the count
+                    continue;
+                }
+                boolean newResult = matches(floatChunk.get(ii));
+                results.set(ii, newResult);
+                // increment the count if the new result is TRUE
+                count += newResult ? 1 : 0;
+            }
+            return count;
+        }
+    }
+
+    /**
+     * The inverse of {@link HashFloatChunkFilter}.
+     */
+    private final static class InverseHashFloatChunkFilter extends FloatChunkFilter {
+        private final IntOpenHashSet set;
+
+        private InverseHashFloatChunkFilter(final IntOpenHashSet set) {
+            this.set = set;
+        }
+
+        @Override
+        public boolean matches(float value) {
+            return !set.contains(getBits(value));
+        }
+
+        // Identical code for all FloatChunkFilter classes, replicated here to prevent megamorphism in the JVM
+        @Override
+        public void filter(
+                final Chunk<? extends Values> values,
+                final LongChunk<OrderedRowKeys> keys,
+                final WritableLongChunk<OrderedRowKeys> results) {
+            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
+            final int len = floatChunk.size();
+
+            results.setSize(0);
+            for (int ii = 0; ii < len; ++ii) {
+                if (matches(floatChunk.get(ii))) {
+                    results.add(keys.get(ii));
+                }
+            }
+        }
+
+        @Override
+        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
+            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
+            final int len = values.size();
+            int count = 0;
+            for (int ii = 0; ii < len; ++ii) {
+                final boolean newResult = matches(floatChunk.get(ii));
+                results.set(ii, newResult);
+                // count every true value
+                count += newResult ? 1 : 0;
+            }
+            return count;
+        }
+
+        @Override
+        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
+            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
+            final int len = values.size();
+            int count = 0;
+            // Count the values that remain true
+            for (int ii = 0; ii < len; ++ii) {
+                final boolean result = results.get(ii);
+                if (!result) {
+                    // already false, no need to compute or increment the count
+                    continue;
+                }
+                boolean newResult = matches(floatChunk.get(ii));
+                results.set(ii, newResult);
+                // increment the count if the new result is TRUE
+                count += newResult ? 1 : 0;
+            }
+            return count;
+        }
+    }
+
     private static boolean containsNaN(final float... values) {
         for (final float value : values) {
             if (Float.isNaN(value)) {
@@ -996,142 +1141,6 @@ public class FloatChunkMatchFilterFactory {
         public boolean matches(float value) {
             final int valueBits = getBits(value);
             return valueBits != valueBits1 && valueBits != valueBits2 && valueBits != valueBits3;
-        }
-
-        // Identical code for all FloatChunkFilter classes, replicated here to prevent megamorphism in the JVM
-        @Override
-        public void filter(
-                final Chunk<? extends Values> values,
-                final LongChunk<OrderedRowKeys> keys,
-                final WritableLongChunk<OrderedRowKeys> results) {
-            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
-            final int len = floatChunk.size();
-
-            results.setSize(0);
-            for (int ii = 0; ii < len; ++ii) {
-                if (matches(floatChunk.get(ii))) {
-                    results.add(keys.get(ii));
-                }
-            }
-        }
-
-        @Override
-        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
-            final int len = values.size();
-            int count = 0;
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean newResult = matches(floatChunk.get(ii));
-                results.set(ii, newResult);
-                // count every true value
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-
-        @Override
-        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
-            final int len = values.size();
-            int count = 0;
-            // Count the values that remain true
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean result = results.get(ii);
-                if (!result) {
-                    // already false, no need to compute or increment the count
-                    continue;
-                }
-                boolean newResult = matches(floatChunk.get(ii));
-                results.set(ii, newResult);
-                // increment the count if the new result is TRUE
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-    }
-
-    private final static class MultiValueNaNFloatChunkFilter extends FloatChunkFilter {
-        private final IntSet values;
-
-        private MultiValueNaNFloatChunkFilter(float... values) {
-            this.values = new IntOpenHashSet(values.length);
-            for (float v : values) {
-                this.values.add(getBits(v));
-            }
-        }
-
-        @Override
-        public boolean matches(float value) {
-            final int valueBits = getBits(value);
-            return this.values.contains(valueBits);
-        }
-
-        // Identical code for all FloatChunkFilter classes, replicated here to prevent megamorphism in the JVM
-        @Override
-        public void filter(
-                final Chunk<? extends Values> values,
-                final LongChunk<OrderedRowKeys> keys,
-                final WritableLongChunk<OrderedRowKeys> results) {
-            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
-            final int len = floatChunk.size();
-
-            results.setSize(0);
-            for (int ii = 0; ii < len; ++ii) {
-                if (matches(floatChunk.get(ii))) {
-                    results.add(keys.get(ii));
-                }
-            }
-        }
-
-        @Override
-        public int filter(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
-            final int len = values.size();
-            int count = 0;
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean newResult = matches(floatChunk.get(ii));
-                results.set(ii, newResult);
-                // count every true value
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-
-        @Override
-        public int filterAnd(final Chunk<? extends Values> values, final WritableBooleanChunk<Values> results) {
-            final FloatChunk<? extends Values> floatChunk = values.asFloatChunk();
-            final int len = values.size();
-            int count = 0;
-            // Count the values that remain true
-            for (int ii = 0; ii < len; ++ii) {
-                final boolean result = results.get(ii);
-                if (!result) {
-                    // already false, no need to compute or increment the count
-                    continue;
-                }
-                boolean newResult = matches(floatChunk.get(ii));
-                results.set(ii, newResult);
-                // increment the count if the new result is TRUE
-                count += newResult ? 1 : 0;
-            }
-            return count;
-        }
-    }
-
-    private final static class InverseMultiValueNaNFloatChunkFilter extends FloatChunkFilter {
-        private final IntSet values;
-
-        private InverseMultiValueNaNFloatChunkFilter(float... values) {
-            this.values = new IntOpenHashSet(values.length);
-            for (float v : values) {
-                this.values.add(getBits(v));
-            }
-        }
-
-        @Override
-        public boolean matches(float value) {
-            final int valueBits = getBits(value);
-            return !values.contains(valueBits);
         }
 
         // Identical code for all FloatChunkFilter classes, replicated here to prevent megamorphism in the JVM
